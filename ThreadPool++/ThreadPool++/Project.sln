@@ -42,7 +42,6 @@ Global
 		{A34AA0B5-EDB3-3F92-B0BA-652DBCEF82DD}.MinSizeRel|x64.ActiveCfg = MinSizeRel|x64
 		{A34AA0B5-EDB3-3F92-B0BA-652DBCEF82DD}.MinSizeRel|x64.Build.0 = MinSizeRel|x64
 		{A34AA0B5-EDB3-3F92-B0BA-652DBCEF82DD}.Release|x64.ActiveCfg = Release|x64
-		{A34AA0B5-EDB3-3F92-B0BA-652DBCEF82DD}.Release|x64.Build.0 = Release|x64
 		{A34AA0B5-EDB3-3F92-B0BA-652DBCEF82DD}.RelWithDebInfo|x64.ActiveCfg = RelWithDebInfo|x64
 		{A34AA0B5-EDB3-3F92-B0BA-652DBCEF82DD}.RelWithDebInfo|x64.Build.0 = RelWithDebInfo|x64
 	EndGlobalSection
