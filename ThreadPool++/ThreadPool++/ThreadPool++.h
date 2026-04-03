@@ -4,6 +4,28 @@
 // Thread Pool ++ library 
 // Developed by Aditya Dubey
 
+/*
+Thread Pool ++
+	
+	Create Parallel Tasks (TP_Task Objects) which could run parallely on hyperthreads of multicore CPU processor 
+	enqueue_task: add tasks to ThreadPool 
+	get_task_runtime_status : check runtime performance and status of the task 
+ 	end_task : end task if task not required 
+	check_task_completed : checks and waits until the task is completed
+	ThreadPool manages tasks and threads resources, ThreadPool maps tasks to threads 
+
+	Library : 
+    C++ STANDARD TEMPLATE LIBRARY (STL) , C++11 standard
+	WIN32 Library for windows native implementation 
+	PTHREAD Library for Macos and linux native implementation 
+
+	Code and support of other features for Thread Pool ++ Library : 
+	Add code and support for GPU hardware, via native API or cross platform framework 
+	Add code and support for Macos and linux native implementation via Pthread Library
+	Add code and support for other Hardware Accelerators 
+
+*/
+
 #pragma once
 
 #include <iostream>
@@ -50,7 +72,7 @@ typedef enum {
 } tp_task_status;
 
 // task_call_back
-typedef std::function<void()> tp_task_cb;
+typedef std::function<void(void *,void *)> tp_task_cb;
 
 // task_output
 typedef void* tp_task_output_ptr;
@@ -101,10 +123,16 @@ public:
 	void set_tp_task_cb(tp_task_cb task_cb);
 
 	void set_tp_task_input_ptr(tp_task_input_ptr output_ptr);
-	tp_task_input_ptr get_ip_task_input_ptr();
+	tp_task_input_ptr get_tp_task_input_ptr();
 
 	void set_tp_task_output_ptr(tp_task_output_ptr output_ptr);
-	tp_task_output_ptr get_ip_task_output_ptr();
+	tp_task_output_ptr get_tp_task_output_ptr();
+
+	tp_task_time get_tp_task_start_time();
+	void set_tp_task_start_time(tp_task_time t);
+
+	tp_task_time get_tp_task_end_time();
+	void set_tp_task_end_time(tp_task_time t);
 
 	~TP_Task() {
 
@@ -154,11 +182,11 @@ void TP_Task::set_tp_task_cb(tp_task_cb task_cb) {
 	this->run_cb = task_cb;
 }
 
-tp_task_input_ptr TP_Task::get_ip_task_input_ptr() {
+tp_task_input_ptr TP_Task::get_tp_task_input_ptr() {
 	return this->input_ptr;
 }
 
-void TP_Task::set_tp_task_input_ptr (tp_task_input_ptr output_ptr) {
+void TP_Task::set_tp_task_input_ptr(tp_task_input_ptr input_ptr) {
 	this->input_ptr = input_ptr;
 }
 
@@ -166,17 +194,30 @@ void TP_Task::set_tp_task_output_ptr(tp_task_output_ptr output_ptr) {
 	this->output_ptr = output_ptr;
 }
 
-tp_task_output_ptr TP_Task::get_ip_task_output_ptr() {
+tp_task_output_ptr TP_Task::get_tp_task_output_ptr() {
 	return this->output_ptr;
 }
 
-//tp_task_output_ptr TP_Task::g
+tp_task_time TP_Task::get_tp_task_start_time() {
+	return this->task_start_time;
+}
 
+void TP_Task::set_tp_task_start_time(tp_task_time t) {
+	this->task_start_time = t;
+}
+
+tp_task_time TP_Task::get_tp_task_end_time() {
+	return this->task_end_time;
+}
+
+void TP_Task::set_tp_task_end_time(tp_task_time t) {
+	this->task_end_time = t;
+}
 
 // Thread Safe Implementation 
 
 // Thread Pool Process Queue 
-std::queue <TP_Task> process_queue;
+std::queue <TP_Task*> process_queue;
 
 // boolean to track added to queue
 std::atomic<bool> added_to_process_queue = false;
@@ -220,6 +261,7 @@ public :
 	virtual bool end_task(TP_Task &task_) = 0;
 	virtual uint32_t process_task() = 0;
 	std::string get_implementation_() { return this->implementation_; }
+	virtual bool check_task_completed(TP_Task task_) = 0;
 
 	~Thread_Pool_() {}
 
@@ -238,13 +280,14 @@ class TP_Implementation_ : public Thread_Pool_{
 		bool end_task(TP_Task &task_);
 		uint32_t process_task() ;
 		std::string get_task_runtime_status(tp_task_id task_id);
+		bool check_task_completed(TP_Task  task_);
+		void tp_task_function_(TP_Task task_);
 
 		TP_Implementation_() {
 			this->cpu_max_hyper_threads = std::thread::hardware_concurrency();
 			assert(this->cpu_max_hyper_threads > 0, "Failed Thread Pool Initialization, threads == 0");
 			this->thread_vec.resize(this->cpu_max_hyper_threads);
 			tp_init_thread_vector();
-			this->task_vec.resize(this->cpu_max_hyper_threads);
 
 			assert(this->thread_vec.size() == this->cpu_max_hyper_threads, "Thread Vec not initialized ");
 			this->task_m = new std::unordered_map <tp_task_id,int>();
@@ -255,25 +298,26 @@ class TP_Implementation_ : public Thread_Pool_{
 			this->get_from_process_q = &get_from_process_queue;
 			this->current_task = 0;
 			this->check_process_q_ = true;
-			this->t_check_process_q_ = std::thread([this]() {
+			/*this->t_check_process_q_ = std::thread([this]() {
 					while (this->check_process_q_) {
 						this->process_task();
 						std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 					}
-				});
+				});*/ 
 		}
 
 		~TP_Implementation_() {
+			//if (this->t_check_process_q_.joinable()) this->t_check_process_q_.join();
+			this->check_all_tasks_completed();
 			if (task_m != nullptr) delete this->task_m;
 			this->process_queue_ptr = nullptr;
 			this->completion_queue_ptr = nullptr;
 			this->check_process_q_ = false;
-			if (this->t_check_process_q_.joinable()) this->t_check_process_q_.join();
 		}
 
 	private :
 		
-		std::queue <TP_Task> * process_queue_ptr; 
+		std::queue <TP_Task *> * process_queue_ptr; 
 		
 		std::mutex process_q_mutex; 
 		
@@ -283,7 +327,7 @@ class TP_Implementation_ : public Thread_Pool_{
 		std::unordered_map <tp_task_id, int> * task_m; 
 
 		// Hash Table : thread index -> tp_task  
-		std::vector <TP_Task *> task_vec;
+		std::vector <TP_Task> task_vec;
 
 		std::vector<std::thread> thread_vec;  
 
@@ -305,7 +349,9 @@ class TP_Implementation_ : public Thread_Pool_{
 
 		std::atomic <bool> check_process_q_ = false;
 
-		std::thread t_check_process_q_;
+		//std::thread t_check_process_q_;
+
+		bool check_all_tasks_completed();
 };
 
 uint32_t TP_Implementation_::enqueue_task(TP_Task &task_) {
@@ -317,9 +363,9 @@ uint32_t TP_Implementation_::enqueue_task(TP_Task &task_) {
 	task_.set_tp_task_status(TP_TASK_ENQUEUED_PROCESS_QUEUE);
 
 	this->process_q_conditional_var.wait(lk, [this, &task_]() {
-		this->process_queue_ptr->push(task_);
+		this->process_queue_ptr->push(&task_);
 		*(this->add_to_process_q) = true;
-		return *(this->add_to_process_q) & !(*(this->get_from_process_q));
+		return *(this->add_to_process_q) && !(*(this->get_from_process_q));
 	});
 
 	*(this->add_to_process_q) = false;
@@ -335,9 +381,9 @@ uint32_t TP_Implementation_::enqueue_task(TP_Task &task_) {
 
 uint32_t TP_Implementation_::process_task() {
 
-	uint32_t x = this->tp_find_free_thread_for_task();
-
 	if (this->process_queue_ptr->size() == 0) return TP_NO_TASK_ENQUEUED_TO_PROCESS_QUEUE;
+
+	uint32_t x = this->tp_find_free_thread_for_task();
 
 	if (x != TP_NO_THREAD_FOR_TP_TASK) {
 #ifdef WIN32
@@ -348,15 +394,16 @@ uint32_t TP_Implementation_::process_task() {
 
 			std::unique_lock <std::mutex> lk(process_queue_mutex);
 
-			TP_Task task_; 
+			TP_Task * task_;
 
 			this->process_q_conditional_var.wait(lk, [this, &task_]() {
 				  if (this->process_queue_ptr->size() > 0) {
 					  task_ = this->process_queue_ptr->front();
+
 					  this->process_queue_ptr->pop();
 					  *(this->get_from_process_q) = true;
 				  }
-				  return *(this->get_from_process_q) & !(*(this->add_to_process_q)) ;
+				  return *(this->get_from_process_q) && !(*(this->add_to_process_q)) ;
 				});
 
 			*(this->get_from_process_q) = false;
@@ -365,33 +412,40 @@ uint32_t TP_Implementation_::process_task() {
 
 			this->process_q_conditional_var.notify_all();
 
-			if (task_.get_tp_task_status() == TP_TASK_ENQUEUED_PROCESS_QUEUE) {
-				assert(this->thread_vec.size() > 0, "thread vector not initialized");
-				assert(this->thread_vec.size() == this->cpu_max_hyper_threads, "Invalid Number of threads");
+			if (task_->get_tp_task_cb() == nullptr) {
+				return TP_NO_TASK_ENQUEUED_TO_PROCESS_QUEUE;
+			}
 
-				HANDLE win_handle = this->thread_vec[x].native_handle();
+			if (task_->get_tp_task_status() == TP_TASK_ENQUEUED_PROCESS_QUEUE) {
 
-				if (win_handle != NULL && win_handle != INVALID_HANDLE_VALUE) {
-					CloseHandle(win_handle);
-				}
+				tp_task_cb task_cb = task_->get_tp_task_cb();
 
-				tp_task_cb task_cb = task_.get_tp_task_cb();
+				this->thread_vec[x] = std::thread(&TP_Implementation_::tp_task_function_, this, *task_);
 
-				if (this->task_vec[x] != nullptr) this->task_vec[x]->set_tp_task_status(TP_TASK_COMPLETED);
+				//this->thread_vec[x] = std::thread(task_cb);
 
-				this->thread_vec[x] = std::thread(std::bind(task_cb));
+				this->task_m->insert({ task_->get_tp_task_id(), x });
 
-				this->task_m->insert({ task_.get_tp_task_id(), x });
+				task_->set_tp_task_status(TP_TASK_RUN);
 
-				task_.set_tp_task_status(TP_TASK_RUN);
+				this->task_vec.push_back(*task_);
 
-				this->task_vec[x] = &task_;
+				*(this->get_from_process_q) = false;
 
 				return x;
 			}
 			else {
+
+				*(this->get_from_process_q) = false;
+
+				lk.unlock();
+
+				this->process_q_conditional_var.notify_all();
+
 				return TP_TASK_INVALID_STATUS;
 			}
+
+
 		}
 		catch (std::exception& e) {
 			std::cout << e.what() << std::endl;
@@ -445,6 +499,10 @@ bool TP_Implementation_::end_task(TP_Task &task_) {
 				CloseHandle(win_handle);
 			}
 
+			if(this->thread_vec.at(thread_index).joinable()) {
+				this->thread_vec.at(thread_index).join();
+			}
+
 			task_.set_tp_task_status(TP_TASK_ENDED);
 
 			this->task_m->insert({thread_index , TP_TASK_CANCELLED});
@@ -486,21 +544,28 @@ uint32_t TP_Implementation_::tp_find_free_thread_for_task() {
 
 	for (int x = 0; x < this->cpu_max_hyper_threads; x++) {
 		// implementation for Windows 
+
 		#ifdef WIN32
 		    // windows native thread implementation
-		HANDLE win_handle = this->thread_vec[x].native_handle();
+			HANDLE win_handle = this->thread_vec[x].native_handle();
 
-		DWORD exitCode;
+			DWORD exitCode = 0;
 
-		bool thread_is_busy = (GetExitCodeThread(win_handle, &exitCode) == STILL_ACTIVE) ? true : false;
+			GetExitCodeThread(win_handle, &exitCode);
 
-		if (thread_is_busy) continue;
-		else {
-			if (this->task_vec[x] != nullptr) {
-				this->end_task(*task_vec[x]);
-			}
-			return x;
-		}
+			bool thread_is_busy = (exitCode == STILL_ACTIVE) ? true : false;
+
+			if (thread_is_busy) continue;
+			else {
+				if (this->thread_vec[x].joinable()) {
+					this->thread_vec[x].join();
+					return x;
+				}
+				else {
+					return x;
+				}
+		    }
+
 		#else
 			// pthread implementation for linux/macos OS	
 		#endif
@@ -532,7 +597,9 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
 
 	DWORD exitCode;
 
-	bool thread_is_busy = (GetExitCodeThread(win_handle, &exitCode) == STILL_ACTIVE) ? true : false;
+	GetExitCodeThread(win_handle, &exitCode);
+
+	bool thread_is_busy = (exitCode == STILL_ACTIVE) ? true : false;
 
 	DWORD thread_id = GetThreadId(win_handle);
 
@@ -543,7 +610,7 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
 	str_.append("{")
 		.append("task_id : ").append(str_task_id).append(", ")
 		.append("thread : ").append(str_thread).append(", ")
-		.append("thread_run_status : ").append(str_thread_is_busy).append(" ")
+		.append("thread_run_status : ").append(str_thread_is_busy)
 		.append("}");
 
 #else
@@ -553,66 +620,81 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
 	return str_;
 }
 
+void TP_Implementation_::tp_task_function_(TP_Task t_) {
+
+	tp_task_cb run_task = std::bind(t_.get_tp_task_cb(), 
+		                                  std::placeholders::_1, 
+		                                           std::placeholders::_2);
+
+	try {
+		run_task(t_.get_tp_task_input_ptr() , t_.get_tp_task_output_ptr());
+		if (t_.get_tp_task_id() < this->task_vec.size()) {
+			this->task_vec.at(t_.get_tp_task_id()).set_tp_task_status(TP_TASK_COMPLETED);
+		}
+	}
+	catch (std::exception& e) {
+		std::cout << e.what() << std::endl;
+		t_.set_tp_task_status(TP_TASK_ENDED);
+	}
+
+}
+
+bool TP_Implementation_::check_task_completed(TP_Task task_) {
+
+	if (task_.get_tp_task_status() != TP_TASK_RUN) {
+		return true;
+	}
+	
+	try {
+
+		int x = TP_NO_THREAD_FOR_TP_TASK;
+
+		tp_task_id task_id = task_.get_tp_task_id() ;
+
+		if (this->task_m->find(task_id) != this->task_m->end()) {
+			x = this->task_m->at(task_id);
+		}
+		else return true;
+
+		if (this->thread_vec[x].joinable()) {
+			this->thread_vec[x].join();
+			task_.set_tp_task_status(TP_TASK_COMPLETED);
+		}
+
+		return true;
+
+	}
+	catch (std::exception& e) {
+		std::cout << e.what() << std::endl;
+		return false;
+	}
+
+	return true;
+}
+
+bool TP_Implementation_::check_all_tasks_completed() {
+
+	bool value = false;
+
+	for (TP_Task t : this->task_vec) {
+		try {
+		    value = (value || this->check_task_completed(t));
+		}
+		catch (std::exception& e) {
+		    std::cout << e.what() << std::endl;
+			value = false;
+		}
+	}
+
+	for (std::thread &t : this->thread_vec) {
+		
+		if (t.joinable()) {
+			t.join();
+		}
+
+	}
+
+	return value;
+}
+
 typedef TP_Implementation_ TP_CPU_CLASS;
-
-
-// Thread Pool 
-
-
-
-// Thread Pool Implementation 
-
-/*
-class TP_Implementation {
-
-
-
-}; */
-
-/* 	
-	Queue <Task> ;
-
-	TP_Task {
-
-		task_id;
-		task_status;
-		task_cb;
-		task_completion_cb;
-		task_start_time;
-		task_end_time;
-
-	}
-
-
-	Task -> process queue -> ThreadPool -> completion queue -> run the Callback after task is completed / log the task
-
-
-	ThreadPool () {
-		
-	}
-
-	~ThreadPool () {
-		
-	}
-
-	task_ID enqueue_task(std::function <T> f_) {
-		
-	}
-
-	task_status get_task_status() {
-		
-	}	
-
-	boolean end_task() {
-
-	}
-
-*/
-
-
-// TODO: Reference additional headers your program requires here.
-
-
-
-
-
