@@ -45,18 +45,18 @@ int main()
 	t3.set_tp_task_cb(f_);
 	t4.set_tp_task_cb(f_);
 
-	tp_task_input_ptr t1_input = new int(1000); 
-	tp_task_input_ptr t2_input = new int(2000);
-	tp_task_input_ptr t3_input = new int(3000);
-	tp_task_input_ptr t4_input = new int(4000);
+	tp_task_input_ptr t1_input = new int(100); 
+	tp_task_input_ptr t2_input = new int(200);
+	tp_task_input_ptr t3_input = new int(300);
+	tp_task_input_ptr t4_input = new int(400);
 
 	tp_task_output_ptr t1_output = new int(0);
 	tp_task_output_ptr t2_output = new int(0);
 	tp_task_output_ptr t3_output = new int(0);
 	tp_task_output_ptr t4_output = new int(0);
 
-	int t5_input = 5000;
-	int t5_output = 5000;
+	int t5_input = 500;
+	int t5_output = 0;
 
 	t1.set_tp_task_input_ptr(t1_input);
 	t2.set_tp_task_input_ptr(t2_input);
@@ -79,7 +79,9 @@ int main()
 	tp->enqueue_task(t4);
 	cout << tp->get_task_runtime_status(t4.get_tp_task_id()) << endl;
 
-	std::this_thread::sleep_for(std::chrono::seconds(7));
+	//std::this_thread::sleep_for(std::chrono::seconds(7));
+
+	tp->end_task(t5);
 
 	tp->check_task_completed(t1);
 	tp->check_task_completed(t2);

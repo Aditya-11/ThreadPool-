@@ -39,6 +39,7 @@ Thread Pool ++
 #include <cassert>
 #include <exception>
 #include <string>
+#include <ctime>
 
 // Use Native CPU thread Implementation based on Operating System
 #ifdef WIN32
@@ -57,8 +58,14 @@ Thread Pool ++
 
 typedef uint32_t tp_task_id;
 
-// task time in mili seconds
-typedef uint64_t tp_task_time;
+// task time 
+typedef std::chrono::time_point<std::chrono::steady_clock> tp_task_time;
+
+// task duration in milliseconds 
+typedef std::chrono::milliseconds tp_time_milliseconds;
+
+// task duration in seconds
+typedef std::chrono::seconds tp_time_seconds;
 
 // task status 
 typedef enum {
@@ -70,6 +77,17 @@ typedef enum {
 	TP_TASK_ENDED = 0x05,
 	TP_TASK_MAX_VALUE = 0x06
 } tp_task_status;
+
+// task status string
+static const char* tp_task_status_str_arr[] = {
+    "TP_TASK_MIN_VALUE",
+	"TP_TASK_ENQUEUED_PROCESS_QUEUE",
+	"TP_TASK_RUN",
+	"TP_TASK_ENQUEUED_COMPLETION_QUEUE",
+	"TP_TASK_COMPLETED",
+	"TP_TASK_ENDED",
+	"TP_TASK_MAX_VALUE"
+};
 
 // task_call_back
 typedef std::function<void(void *,void *)> tp_task_cb;
@@ -95,6 +113,8 @@ public:
 		this->run_cb = run_cb;
 		this->complete_cb = complete_cb;
 		this->thread_id = -1;
+		this->task_start_time = std::chrono::steady_clock::time_point(std::chrono::milliseconds(0));
+		this->task_end_time = std::chrono::steady_clock::time_point(std::chrono::milliseconds(0));
 	}
 
 	TP_Task() {
@@ -103,6 +123,8 @@ public:
 		this->run_cb = nullptr;
 		this->complete_cb = nullptr;
 		this->thread_id = -1;
+		this->task_start_time = std::chrono::steady_clock::time_point(std::chrono::milliseconds(0));
+		this->task_end_time = std::chrono::steady_clock::time_point(std::chrono::milliseconds(0));
 	}
 
 	TP_Task(tp_task_cb run_cb, tp_task_cb complete_cb) {
@@ -111,6 +133,8 @@ public:
 		this->run_cb = run_cb;
 		this->complete_cb = complete_cb;
 		this->thread_id = -1;
+		this->task_start_time = std::chrono::steady_clock::time_point(std::chrono::milliseconds(0));
+		this->task_end_time = std::chrono::steady_clock::time_point(std::chrono::milliseconds(0));
 	}
 
 	tp_task_id get_tp_task_id();
@@ -134,6 +158,9 @@ public:
 	tp_task_time get_tp_task_end_time();
 	void set_tp_task_end_time(tp_task_time t);
 
+	tp_time_milliseconds get_tp_task_duration();
+	void set_tp_task_duration(tp_time_milliseconds t);
+
 	~TP_Task() {
 
 	}
@@ -151,6 +178,8 @@ private :
 	tp_task_time task_start_time;
 
 	tp_task_time task_end_time;
+	
+	tp_time_milliseconds task_duration;
 
 	tp_task_output_ptr output_ptr;
 
@@ -212,6 +241,14 @@ tp_task_time TP_Task::get_tp_task_end_time() {
 
 void TP_Task::set_tp_task_end_time(tp_task_time t) {
 	this->task_end_time = t;
+}
+
+void TP_Task::set_tp_task_duration(tp_time_milliseconds t) {
+	this->task_duration = t;
+}
+
+tp_time_milliseconds TP_Task::get_tp_task_duration() {
+	return this->task_duration;
 }
 
 // Thread Safe Implementation 
@@ -284,6 +321,7 @@ class TP_Implementation_ : public Thread_Pool_{
 		void tp_task_function_(TP_Task task_);
 
 		TP_Implementation_() {
+			this->tp_instance_init_time = std::chrono::steady_clock::now();
 			this->cpu_max_hyper_threads = std::thread::hardware_concurrency();
 			assert(this->cpu_max_hyper_threads > 0, "Failed Thread Pool Initialization, threads == 0");
 			this->thread_vec.resize(this->cpu_max_hyper_threads);
@@ -298,16 +336,17 @@ class TP_Implementation_ : public Thread_Pool_{
 			this->get_from_process_q = &get_from_process_queue;
 			this->current_task = 0;
 			this->check_process_q_ = true;
-			/*this->t_check_process_q_ = std::thread([this]() {
+			this->t_check_process_q_ = std::thread([this]() {
 					while (this->check_process_q_) {
 						this->process_task();
 						std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 					}
-				});*/ 
+				}); 
 		}
 
 		~TP_Implementation_() {
-			//if (this->t_check_process_q_.joinable()) this->t_check_process_q_.join();
+			this->check_process_q_ = false;
+			if (this->t_check_process_q_.joinable()) this->t_check_process_q_.join();
 			this->check_all_tasks_completed();
 			if (task_m != nullptr) delete this->task_m;
 			this->process_queue_ptr = nullptr;
@@ -316,6 +355,8 @@ class TP_Implementation_ : public Thread_Pool_{
 		}
 
 	private :
+
+		tp_task_time tp_instance_init_time;
 		
 		std::queue <TP_Task *> * process_queue_ptr; 
 		
@@ -349,9 +390,13 @@ class TP_Implementation_ : public Thread_Pool_{
 
 		std::atomic <bool> check_process_q_ = false;
 
-		//std::thread t_check_process_q_;
+		std::thread t_check_process_q_;
 
 		bool check_all_tasks_completed();
+
+		void check_start_time(TP_Task& t);
+
+		void check_end_time(TP_Task& t);
 };
 
 uint32_t TP_Implementation_::enqueue_task(TP_Task &task_) {
@@ -361,6 +406,7 @@ uint32_t TP_Implementation_::enqueue_task(TP_Task &task_) {
 	task_.set_tp_task_id(this->current_task);
 	this->current_task = this->current_task + 1;
 	task_.set_tp_task_status(TP_TASK_ENQUEUED_PROCESS_QUEUE);
+	this->check_start_time(task_);
 
 	this->process_q_conditional_var.wait(lk, [this, &task_]() {
 		this->process_queue_ptr->push(&task_);
@@ -397,14 +443,15 @@ uint32_t TP_Implementation_::process_task() {
 			TP_Task * task_;
 
 			this->process_q_conditional_var.wait(lk, [this, &task_]() {
-				  if (this->process_queue_ptr->size() > 0) {
-					  task_ = this->process_queue_ptr->front();
+				if (this->process_queue_ptr->size() > 0) {
+					task_ = this->process_queue_ptr->front();
 
-					  this->process_queue_ptr->pop();
-					  *(this->get_from_process_q) = true;
-				  }
-				  return *(this->get_from_process_q) && !(*(this->add_to_process_q)) ;
-				});
+					this->process_queue_ptr->pop();
+					*(this->get_from_process_q) = true;
+					return *(this->get_from_process_q) && !(*(this->add_to_process_q));
+				}
+				else return true;
+			});
 
 			*(this->get_from_process_q) = false;
 
@@ -505,7 +552,7 @@ bool TP_Implementation_::end_task(TP_Task &task_) {
 
 			task_.set_tp_task_status(TP_TASK_ENDED);
 
-			this->task_m->insert({thread_index , TP_TASK_CANCELLED});
+			this->task_m->insert({ task_.get_tp_task_id() , TP_TASK_CANCELLED});
 
 			return true;
 
@@ -584,7 +631,7 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
 	// Use WIN32 Thread Information API also  
 
 	int x = TP_NO_THREAD_FOR_TP_TASK;
-	
+
 	if (this->task_m->find(task_id) != this->task_m->end()) {
 		x = this->task_m->at(task_id);
 	}
@@ -603,15 +650,64 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
 
 	DWORD thread_id = GetThreadId(win_handle);
 
+	/*
+	THREAD_INFORMATION_CLASS thread_info_class = ThreadAbsoluteCpuPriority;
+
+	LPVOID thread_info;
+
+	DWORD thread_info_class_size = sizeof(ThreadAbsoluteCpuPriority);
+
+	// windows thread info
+	bool windows_thread_info_ = GetThreadInformation(win_handle,
+		                                            thread_info_class,
+													&thread_info ,
+													thread_info_class_size
+		                                            );
+	*/
+
+	TP_Task task_ = this->task_vec.at(x) ;
+
+	tp_task_status task_status_ = task_.get_tp_task_status();
+
 	std::string str_task_id = std::to_string(task_id);
 	std::string str_thread = std::to_string(thread_id);
 	std::string str_thread_is_busy = std::to_string(thread_is_busy);
 
-	str_.append("{")
-		.append("task_id : ").append(str_task_id).append(", ")
-		.append("thread : ").append(str_thread).append(", ")
-		.append("thread_run_status : ").append(str_thread_is_busy)
-		.append("}");
+	std::time_t curr_t = std::time_t();
+
+	const char* curr_t_str = std::ctime(&curr_t);
+
+	assert((task_status_ < TP_TASK_MAX_VALUE ||
+		                                        task_status_ > TP_TASK_MIN_VALUE), 
+		                                                                " Invalid TP Task Status ");
+
+	const char* str_task_status = tp_task_status_str_arr[task_status_];
+
+	tp_time_milliseconds t_start = std::chrono::duration_cast <tp_time_milliseconds> 
+		                                                        (task_.get_tp_task_start_time() - this->tp_instance_init_time);
+
+	tp_time_milliseconds t_end = std::chrono::duration_cast <tp_time_milliseconds> 
+		                                                        (task_.get_tp_task_end_time() - this->tp_instance_init_time);
+
+	tp_time_milliseconds t_duration = task_.get_tp_task_duration();
+
+	std::string t_start_str = std::to_string(t_start.count()) ;
+
+	std::string t_end_str = std::to_string(t_end.count());
+
+	std::string t_duration_str =  std::to_string(t_duration.count());
+
+	str_.append("{").append(" \n")
+		.append(" \current_date_time\" : ").append(curr_t_str).append(", \n")
+		.append(" \"method\" : \"Thread Pool ++ task_runtime_status\", \n")
+		.append(" \"task_id\" : ").append(str_task_id).append(", \n")
+		.append(" \"task status\" : ").append(str_task_status).append(", \n")
+		.append(" \"task_start_time\" : ").append(t_start_str).append(", \n")
+		.append(" \"task_end_time\" : ").append(t_end_str).append(", \n")
+		.append(" \"task_duration_time\" : ").append(t_duration_str).append(", \n")
+		.append(" \"thread_id\" : ").append(str_thread).append(", \n")
+		.append(" \"thread_run_status\" : ").append(str_thread_is_busy).append(", \n")
+		.append("}").append(" \n");
 
 #else
 
@@ -631,10 +727,12 @@ void TP_Implementation_::tp_task_function_(TP_Task t_) {
 		if (t_.get_tp_task_id() < this->task_vec.size()) {
 			this->task_vec.at(t_.get_tp_task_id()).set_tp_task_status(TP_TASK_COMPLETED);
 		}
+		this->check_end_time(t_);
 	}
 	catch (std::exception& e) {
 		std::cout << e.what() << std::endl;
 		t_.set_tp_task_status(TP_TASK_ENDED);
+		this->check_end_time(t_);
 	}
 
 }
@@ -695,6 +793,18 @@ bool TP_Implementation_::check_all_tasks_completed() {
 	}
 
 	return value;
+}
+
+void TP_Implementation_::check_start_time(TP_Task &t) {
+	tp_task_time t_ = std::chrono::steady_clock::now();
+	t.set_tp_task_start_time(t_);
+}
+
+void TP_Implementation_::check_end_time(TP_Task &t) {
+	tp_task_time t_ = std::chrono::steady_clock::now();
+	tp_time_milliseconds t_duration = std::chrono::duration_cast <std::chrono::milliseconds> (t_ - t.get_tp_task_start_time());
+	t.set_tp_task_duration(t_duration);
+	t.set_tp_task_end_time(t_);
 }
 
 typedef TP_Implementation_ TP_CPU_CLASS;
