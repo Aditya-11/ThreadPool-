@@ -106,6 +106,20 @@ typedef void* tp_task_output_ptr;
 // task_input
 typedef void* tp_task_input_ptr;
 
+// task runtime data
+typedef struct tp_task_runtime_data{
+
+	time_t               curr_time;
+	tp_task_id           task_id;
+	tp_task_status       task_status;
+	tp_time_milliseconds task_start;
+	tp_time_milliseconds task_end;
+	tp_time_milliseconds task_duration;
+	uint32_t             thread_id;
+	uint8_t              thread_run_status;
+
+};
+
 // Thread Pool Task Implementaion 
 class TP_Task {
 
@@ -324,8 +338,10 @@ class TP_Implementation_ : public Thread_Pool_ {
 public:
 		uint32_t enqueue_task(TP_Task &task_);
 		tp_task_status get_task_status(TP_Task task_);
-		bool check_task_completed_native(TP_Task &task_);
+		bool check_task_completed_native(TP_Task &task_, std::string& output);
+		bool check_task_completed_native(TP_Task& task_, uint64_t time_in_milliseconds, std::string &output);
 		uint32_t process_task() ;
+		std::string get_task_runtime_status(tp_task_id task_id, tp_task_runtime_data* tp_perf_stats);
 		std::string get_task_runtime_status(tp_task_id task_id);
 		bool check_task_completed(TP_Task  task_);
 		void tp_task_function_(TP_Task task_);
@@ -523,7 +539,22 @@ tp_task_status TP_Implementation_::get_task_status(TP_Task task_) {
 	return task_.get_tp_task_status();
 }
 
-bool TP_Implementation_::check_task_completed_native(TP_Task& task_) {
+bool TP_Implementation_::check_task_completed_native(TP_Task& task_, 
+	                                                               std::string &output) {
+	return this->check_task_completed_native(task_, 3000, output);
+}
+
+bool TP_Implementation_::check_task_completed_native(TP_Task& task_, 
+	                                                              uint64_t time_in_milliseconds, std::string &output) {
+
+	tp_task_status task_status_ = task_.get_tp_task_status();
+
+	assert((task_status_ <= TP_TASK_MAX_VALUE ||
+		                                 task_status_ >= TP_TASK_MIN_VALUE),
+		                                                           " Invalid TP Task Status ");
+	output.append("{ \n");
+	output.append(" \"method\" : \" THREAD POOL ++ check_task_completed_native \", \n");
+	output.append(" \"task_id\" : ").append(std::to_string(task_.get_tp_task_id())).append(", \n");
 
 #ifdef WIN32
 
@@ -533,7 +564,8 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_) {
 
 		if (task_.get_tp_task_status() == TP_TASK_ENQUEUED_PROCESS_QUEUE) {
 			task_.set_tp_task_status(TP_TASK_ENDED);
-			return true;
+			output.append("task enqueued to process queue");
+			return false;
 		}
 
 		// if task has started running
@@ -552,9 +584,30 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_) {
 
 			HANDLE win_handle = this->thread_vec.at(thread_index).native_handle();
 
+			DWORD val_ ;
+
 			if (win_handle != NULL && win_handle != INVALID_HANDLE_VALUE) {
 				//CloseHandle(win_handle);
-				WaitForSingleObject(win_handle, 3000);
+				val_ = WaitForSingleObject(win_handle, time_in_milliseconds);
+
+				if (val_ == WAIT_ABANDONED) {
+					output.append(" \"thread_status\" : \" WINDOWS thread, thread status wait abandoned \", \n");
+				}
+				else if (val_ == WAIT_OBJECT_0) {
+					output.append(" \"thread_status\" : \" WINDOWS thread, thread status wait object 0 \", \n");
+				}
+				else if (val_ == WAIT_TIMEOUT) {
+					output.append(" \"thread_status\" : \" WINDOWS thread, thread status wait timeout \", \n");
+				}
+				else if (val_ == WAIT_FAILED) {
+					output.append(" \"thread_status\" : \" WINDOWS thread, thread status wait failed\", \n");
+				}
+				else {
+					output.append(" \"thread_status\" : \" WINDOWS thread, thread status wait ")
+						.append(std::to_string(val_))
+						.append(" \", \n");
+				}
+
 			}
 
 			try {
@@ -570,6 +623,12 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_) {
 
 			this->check_end_time(task_);
 
+			task_status_ = task_.get_tp_task_status();
+
+			output.append(" \"task_status\" : \"").append(tp_task_status_str_arr[task_status_]).append("\" \n");
+
+			output.append("}\n");
+
 			//this->task_m->insert({ task_.get_tp_task_id() , TP_TASK_CANCELLED });
 
 			return true;
@@ -577,15 +636,20 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_) {
 		}
 
 		else {
-
-			std::cout << "task_status = " << task_.get_tp_task_id() << std::endl;
+			task_status_ = task_.get_tp_task_status();
+			std::cout << "task_status = " << task_status_ << std::endl;
+			output.append(" \"task_status\" : \"").append(tp_task_status_str_arr[task_status_]).append("\" \n");
+			output.append("}\n");
 			return false;
-
 		}
 	}
 	catch (std::exception& e) {
 
 		std::cout << e.what() << std::endl;
+
+		std::cout << "task_status = " << task_status_ << std::endl;
+		output.append(" \"task_status\" : \"").append(tp_task_status_str_arr[task_status_]).append("\" \n");
+		output.append("}");
 
 		return false;
 	}
@@ -640,7 +704,9 @@ uint32_t TP_Implementation_::tp_find_free_thread_for_task() {
 	return TP_NO_THREAD_FOR_TP_TASK;
 }
 
-std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
+
+std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id , 
+																tp_task_runtime_data* task_runtime_data) {
 
 	std::string str_ = "";
 
@@ -703,9 +769,9 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
 
 	UTIL_STRING_NEWLINE(curr_t_str, curr_str_len);
 
-	assert((task_status_ < TP_TASK_MAX_VALUE ||
-		task_status_ > TP_TASK_MIN_VALUE),
-		" Invalid TP Task Status ");
+	assert((task_status_ <= TP_TASK_MAX_VALUE ||
+						task_status_ >= TP_TASK_MIN_VALUE),
+											" Invalid TP Task Status ");
 
 	const char* str_task_status = tp_task_status_str_arr[task_status_];
 
@@ -729,7 +795,7 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
 	std::string t_duration_str = std::to_string(t_duration.count());
 
 	str_.append("{").append(" \n")
-		.append(" \current_date_time\" : ").append("\" ").append(curr_t_str).append("\", \n")
+		.append(" \"current_date_time\" : ").append("\" ").append(curr_t_str).append("\", \n")
 		.append(" \"method\" : \" Thread Pool ++ task_runtime_status \", \n")
 		.append(" \"task_id\" : ").append(str_task_id).append(", \n")
 		.append(" \"task status\" : ").append(" \"").append(str_task_status).append("\"").append(", \n")
@@ -740,11 +806,30 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
 		.append(" \"thread_run_status\" : ").append(str_thread_is_busy).append(", \n")
 		.append("}").append(" \n");
 
+	if (task_runtime_data != nullptr) {
+
+		task_runtime_data->task_id = task_id;
+		task_runtime_data->task_status = task_status_;
+		task_runtime_data->task_start = t_start;
+		task_runtime_data->task_end = t_end;
+		task_runtime_data->task_duration = t_duration;
+		task_runtime_data->thread_id = thread_id;
+		task_runtime_data->thread_run_status = thread_is_busy;
+		task_runtime_data->curr_time = curr_t;
+
+	}
+
 #else
 
 #endif
 
 	return str_;
+}
+
+std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
+
+	return this->get_task_runtime_status(task_id, nullptr);
+
 }
 
 void TP_Implementation_::tp_task_function_(TP_Task t_) {
@@ -776,7 +861,7 @@ bool TP_Implementation_::check_task_completed(TP_Task task_) {
 
 	try {
 
-		int x = TP_NO_THREAD_FOR_TP_TASK;
+	int x = TP_NO_THREAD_FOR_TP_TASK;
 
 	tp_task_id task_id = task_.get_tp_task_id() ;
 

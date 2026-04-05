@@ -89,24 +89,31 @@ int main()
 
 	//cout << tp->get_task_runtime_status(t5.get_tp_task_id()) << endl;
 
-	//std::this_thread::sleep_for(std::chrono::seconds(7));
-
 	tp->check_task_completed(t1);
 	tp->check_task_completed(t2);
 	tp->check_task_completed(t3);
-	tp->end_task(t5);
-	tp->check_task_completed(t4);
-	tp->check_task_completed(t5);
+	
+	std::string str_t5;
+	tp->check_task_completed_native(t5, 5000, str_t5);
+
+	std::cout << str_t5 << std::endl;
+
+	std::string str_t4;
+	tp->check_task_completed_native(t4, 5000, str_t4);
+	
+	std::cout << str_t4 << std::endl;
 
 	int* t1_input_ = static_cast <int*> (t1_input);
 	int* t2_input_ = static_cast <int*> (t2_input);
 	int* t3_input_ = static_cast <int*> (t3_input);
 	int* t4_input_ = static_cast <int*> (t4_input);
+	int* t5_input_ = static_cast <int*> (t5_input);
 
 	int* t1_output_ = static_cast <int*> (t1_output);
 	int* t2_output_ = static_cast <int*> (t2_output);
 	int* t3_output_ = static_cast <int*> (t3_output);
 	int* t4_output_ = static_cast <int*> (t4_output);
+	int* t5_output_ = static_cast <int*> (t5_output);
 
 	std::cout << " Task = " << t1.get_tp_task_id() << "  task input =  "
 		<< *t1_input_ << "  task output = " << *t1_output_ << std::endl;
@@ -117,7 +124,7 @@ int main()
 	std::cout << " Task = " << t4.get_tp_task_id() << "  task input =  "
 		<< *t4_input_ << "  task output =  " << *t4_output_ << std::endl;
 	std::cout << " Task = " << t5.get_tp_task_id() << "  task input =  "
-		<< t5_input << "  task output =  " << t5_output << std::endl;
+		<< *t5_input_ << "  task output =  " << *t5_output_ << std::endl;
 
 	std::cout << " Task = " << t1.get_tp_task_id() << " " << tp_task_status_str_arr[t1.get_tp_task_status()] << std::endl;
 	std::cout << " Task = " << t2.get_tp_task_id() << " " << tp_task_status_str_arr[t2.get_tp_task_status()] << std::endl;
@@ -125,12 +132,18 @@ int main()
 	std::cout << " Task = " << t4.get_tp_task_id() << " " << tp_task_status_str_arr[t4.get_tp_task_status()] << std::endl;
 	std::cout << " Task = " << t5.get_tp_task_id() << " " << tp_task_status_str_arr[t5.get_tp_task_status()] << std::endl;
 
+	tp_task_runtime_data t4_runtime_data;
+
 	cout << tp->get_task_runtime_status(t1.get_tp_task_id()) << endl;
 	cout << tp->get_task_runtime_status(t2.get_tp_task_id()) << endl;
 	cout << tp->get_task_runtime_status(t3.get_tp_task_id()) << endl;
-	cout << tp->get_task_runtime_status(t4.get_tp_task_id()) << endl;
+	cout << tp->get_task_runtime_status(t4.get_tp_task_id(), &t4_runtime_data) << endl;
 	cout << tp->get_task_runtime_status(t5.get_tp_task_id()) << endl;
 
+	cout << t4_runtime_data.task_id << t4_runtime_data.thread_run_status
+		 << " " << t4_runtime_data.task_start << " " << t4_runtime_data.task_end
+		 << " " << t4_runtime_data.thread_id << std::endl;
+		                             
 	// free Heap memory 
 	delete tp;
 
