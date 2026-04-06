@@ -73,19 +73,19 @@ int main()
 
 	tp->enqueue_task(t1);
 	cout << tp->get_task_runtime_status(t1.get_tp_task_id()) << endl;
-	std::this_thread::sleep_for(tp_time_milliseconds(250));
+	std::this_thread::sleep_for(tp_time_milliseconds(25));
 	tp->enqueue_task(t2);
 	cout << tp->get_task_runtime_status(t2.get_tp_task_id()) << endl;
 	std::this_thread::sleep_for(tp_time_milliseconds(250));
 	tp->enqueue_task(t3);
 	cout << tp->get_task_runtime_status(t3.get_tp_task_id()) << endl;
-	std::this_thread::sleep_for(tp_time_milliseconds(250));
+	std::this_thread::sleep_for(tp_time_milliseconds(35));
 	tp->enqueue_task(t4);
 	cout << tp->get_task_runtime_status(t4.get_tp_task_id()) << endl;
-	std::this_thread::sleep_for(tp_time_milliseconds(250));
+	std::this_thread::sleep_for(tp_time_milliseconds(25));
 	tp->enqueue_task(t5);
 	cout << tp->get_task_runtime_status(t5.get_tp_task_id()) << endl;
-	std::this_thread::sleep_for(tp_time_milliseconds(250));
+	std::this_thread::sleep_for(tp_time_milliseconds(350));
 
 	//cout << tp->get_task_runtime_status(t5.get_tp_task_id()) << endl;
 
@@ -143,7 +143,7 @@ int main()
 	cout << t4_runtime_data.task_id << t4_runtime_data.thread_run_status
 		 << " " << t4_runtime_data.task_start << " " << t4_runtime_data.task_end
 		 << " " << t4_runtime_data.thread_id << std::endl;
-		                             
+
 	// free Heap memory 
 	delete tp;
 

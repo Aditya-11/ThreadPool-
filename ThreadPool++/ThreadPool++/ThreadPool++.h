@@ -12,6 +12,7 @@ Thread Pool ++
 	get_task_runtime_status : check runtime performance and status of the task 
  	end_task : end task if task not required 
 	check_task_completed : checks and waits until the task is completed
+	check_task_completed_native : checks and waits until the task completed, returns information related to thread. 
 	ThreadPool manages tasks and threads resources, ThreadPool maps tasks to threads 
 
 	Library : 
@@ -345,6 +346,8 @@ public:
 		std::string get_task_runtime_status(tp_task_id task_id);
 		bool check_task_completed(TP_Task  task_);
 		void tp_task_function_(TP_Task task_);
+		void set_time_check_process_q_(int32_t time_);
+		int32_t get_time_check_process_q_();
 
 		TP_Implementation_() {
 			this->tp_instance_init_time = std::chrono::steady_clock::now();
@@ -354,7 +357,7 @@ public:
 			tp_init_thread_vector();
 
 			assert(this->thread_vec.size() == this->cpu_max_hyper_threads, "Thread Vec not initialized ");
-			this->task_m = new std::unordered_map <tp_task_id,int>();
+			this->task_m = new std::unordered_map <tp_task_id, int>();
 			this->process_queue_ptr = &process_queue;
 			this->completion_queue_ptr = &completion_queue;
 			this->implementation_ = "CPU THREAD POOL++ Implementation";
@@ -362,17 +365,18 @@ public:
 			this->get_from_process_q = &get_from_process_queue;
 			this->current_task = 0;
 			this->check_process_q_ = true;
-			/*this->t_check_process_q_ = std::thread([this]() {
-				while (this->check_process_q_) {
+			this->time_check_process_q_ = 800;
+			this->thread_check_process_q_ = std::thread([this]() {
+				while (this->check_process_q_ && !(this->process_queue_ptr->empty())) {
 					this->process_task();
-					std::this_thread::sleep_for(tp_time_milliseconds(1300));
+					std::this_thread::sleep_for(tp_time_milliseconds(this->time_check_process_q_));
 				}
-				});*/
+				});
 		}
 
 		~TP_Implementation_() {
-			//this->check_process_q_ = false;
-			//if (this->t_check_process_q_.joinable()) this->t_check_process_q_.join();
+			this->check_process_q_ = false;
+			if (this->thread_check_process_q_.joinable()) this->thread_check_process_q_.join();
 			this->check_all_tasks_completed();
 			if (task_m != nullptr) delete this->task_m;
 			this->process_queue_ptr = nullptr;
@@ -416,13 +420,15 @@ private :
 
 		std::atomic <bool> check_process_q_ = false;
 
-		//std::thread t_check_process_q_;
+		std::thread thread_check_process_q_;
 
 		bool check_all_tasks_completed();
 
 		void check_start_time(TP_Task& t);
 
 		void check_end_time(TP_Task& t);
+
+		int32_t time_check_process_q_;
 };
 
 uint32_t TP_Implementation_::enqueue_task(TP_Task &task_) {
@@ -803,7 +809,7 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id ,
 		.append(" \"task_end_time\" : ").append(t_end_str).append(", \n")
 		.append(" \"task_duration_time\" : ").append(t_duration_str).append(", \n")
 		.append(" \"thread_id\" : ").append(str_thread).append(", \n")
-		.append(" \"thread_run_status\" : ").append(str_thread_is_busy).append(", \n")
+		.append(" \"thread_run_status\" : ").append(str_thread_is_busy).append(" \n")
 		.append("}").append(" \n");
 
 	if (task_runtime_data != nullptr) {
@@ -928,6 +934,14 @@ void TP_Implementation_::check_end_time(TP_Task& t) {
 	int task_id = t.get_tp_task_id();
 	this->task_vec[task_id].set_tp_task_duration(t_duration);
 	this->task_vec[task_id].set_tp_task_end_time(t_);
+}
+
+void TP_Implementation_::set_time_check_process_q_(int32_t time_) {
+	this->time_check_process_q_ = time_;
+}
+
+int32_t TP_Implementation_::get_time_check_process_q_() {
+	return this->time_check_process_q_;
 }
 
 typedef TP_Implementation_ TP_CPU_CLASS;
