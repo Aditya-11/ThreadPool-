@@ -34,7 +34,7 @@ Threadpool pattern link : https://en.wikipedia.org/wiki/Thread_pool
    
 // initialize the parallel task and add function, add input, output and cb function to the task.
 // Check the ThreadPool++.cpp code to initialize the TP_Task Object, by initializing the task_input, task_output and task_function_cb
-  
+TP::TP_CPU_CLASS * tp = new TP::TP_CPU_CLASS();
 TP::TP_Task* task = new TP::TP_Task();
 TP::tp_task_input_ptr task_input = new int(0);
 TP::tp_task_output_ptr task_output = new int(0);
