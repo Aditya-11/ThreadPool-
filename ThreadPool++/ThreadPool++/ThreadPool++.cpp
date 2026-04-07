@@ -144,8 +144,44 @@ int main()
 		 << " " << t4_runtime_data.task_start << " " << t4_runtime_data.task_end
 		 << " " << t4_runtime_data.thread_id << std::endl;
 
+	TP::TP_Task* task = new TP::TP_Task();
+	TP::tp_task_input_ptr task_input = new int(0);
+	TP::tp_task_output_ptr task_output = new int(0);
+
+	// sample task function
+	auto f_task = [](TP::tp_task_input_ptr input, TP::tp_task_output_ptr output) {
+		int* input_val = static_cast <int*> (input);
+		int* output_val = static_cast <int*> (output);
+		*output_val = ++(*input_val);
+	};
+
+	task->set_tp_task_input_ptr(task_input);
+	task->set_tp_task_output_ptr(task_output);
+	task->set_tp_task_cb(f_task);
+
+	tp->enqueue_task(*task);
+	tp_task_id task_id = task->get_tp_task_id();
+
+	// get runtime status of the task in JSON.
+	std::cout << tp->get_task_runtime_status(task_id) << std::endl;
+
+	// check and wait for the task, get task completed output in JSON.
+	std::string task_completed_output;
+	uint32_t task_timeout = 5000; // value in milliseconds 
+	tp->check_task_completed_native(*task, task_timeout, task_completed_output);
+
+	std::cout << task_completed_output << std::endl;
+
+	int* task_output_ptr = static_cast <int*> (task_output);
+
+	std::cout << " task completed output = " << *task_output_ptr << std::endl;
+
 	// free Heap memory 
 	delete tp;
+
+	delete task;
+	delete task_input;
+	delete task_output;
 
 	delete t1_input;
 	delete t2_input;

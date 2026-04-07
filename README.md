@@ -32,33 +32,50 @@ Threadpool pattern link : https://en.wikipedia.org/wiki/Thread_pool
 
 ```
    
-  // initialize the parallel task and add function, add input, output and cb function to the task.
-  // Check the ThreadPool++.cpp code to initialize the TP_Task Object, by initializing the task_input, task_output and task_function_cb
-  TP::TP_Task * task = new TP::TP_Task();
+// initialize the parallel task and add function, add input, output and cb function to the task.
+// Check the ThreadPool++.cpp code to initialize the TP_Task Object, by initializing the task_input, task_output and task_function_cb
   
-  // Initialize Thread Pool   
-  TP::TP_CPU_CLASS * tp = new TP::TP_CPU_CLASS();
-  
-  // Enqueue the task to tp 
-  tp->enqueue_task(task);
-  
-  // get runtime status of the task in JSON.
-  std::cout << tp->get_task_runtime_status(task_id) << std::endl;
-   
-  // check and wait for the task, get task completed output in JSON.
-  std::string task_completed_output;
-  uint32_t task_timeout = 5000; // value in milliseconds 
-  tp->check_task_completed_native(task_id, task_timeout, task_completed_output);  
-  
-  std::cout << task_completed_output << std::endl;
-  
-  // free the heap memory for task and thread pool 
-  delete task;
-  delete tp;
+TP::TP_Task* task = new TP::TP_Task();
+TP::tp_task_input_ptr task_input = new int(0);
+TP::tp_task_output_ptr task_output = new int(0);
+
+// sample task function
+auto f_task = [](TP::tp_task_input_ptr input, TP::tp_task_output_ptr output) {
+  int* input_val = static_cast <int*> (input);
+  int* output_val = static_cast <int*> (output);
+  *output_val = ++(*input_val);
+};
+
+task->set_tp_task_input_ptr(task_input);
+task->set_tp_task_output_ptr(task_output);
+task->set_tp_task_cb(f_task);
+
+tp->enqueue_task(*task);
+tp_task_id task_id = task->get_tp_task_id();
+
+// get runtime status of the task in JSON.
+std::cout << tp->get_task_runtime_status(task_id) << std::endl;
+
+// check and wait for the task, get task completed output in JSON.
+std::string task_completed_output;
+uint32_t task_timeout = 5000; // value in milliseconds 
+tp->check_task_completed_native(*task, task_timeout, task_completed_output);
+
+std::cout << task_completed_output << std::endl;
+
+int* task_output_ptr = static_cast <int*> (task_output);
+
+std::cout << " task completed output = " << *task_output_ptr << std::endl;
+
+// free heap memory
+delete tp;
+delete task;
+delete task_input;
+delete task_output;
   
 ```
 
-<b> Output </b>
+<b> Output of t3 task at ThreadPool++.cpp </b>
 
 ```
 
@@ -98,5 +115,4 @@ Threadpool pattern link : https://en.wikipedia.org/wiki/Thread_pool
 }
 
 ```
-
 
