@@ -1,6 +1,6 @@
-# <b> Thread Pool ++ </b> 
+#  <b> Thread Pool ++ </b>  
 
-C++ implementation of Threadpool pattern, using the thread pool pattern is better for runtime performance of the program and maintaining the code, than creating a new thread in the program when required. Threadpool manages the thread and task resources. Create a parallel task object by initializing the TP_Task Class, add input, output and function cb to the task and enqueue the object to thread pool. Initially number of hyperthreads at CPU are created and tasks are assigned to the threads by the thread pool.
+C++ implementation of Threadpool pattern, using the thread pool pattern is better for runtime performance of the program and maintaining the code, than creating a new thread in the program when required. Threadpool manages the thread and task resources. Create a parallel task object by initializing the TP_Task Class, add input variable pointer, output variable pointer and function cb to the task and enqueue the object to thread pool. Initially number of hyperthreads at CPU are created and tasks are assigned to the threads by the thread pool.
 
 <br>
 
@@ -18,7 +18,7 @@ Threadpool pattern link : https://en.wikipedia.org/wiki/Thread_pool
 * When thread pool memory is freed, thread pool checks and waits for all the task to complete.
 * Thread Pool ++ implemented for only windows OS, Pthread implementation is pending for Macos and linux.
 * create a new task object via TP_Task class, add function (code) via set_tp_task_cb method to run parallel task.
-* Set input of the task via set_tp_task_input_ptr method and set output of the task via set_tp_task_output_ptr. typecast the tp_task_input_ptr and tp_task_output_ptr variables, check ThreadPool++.cpp source code. Set the task function callback via set_tp_task_cb method.
+* Set input variable pointer of the task via set_tp_task_input_ptr method and set output variable pointer of the task via set_tp_task_output_ptr. typecast the tp_task_input_ptr and tp_task_output_ptr variables at the function defined, check ThreadPool++.cpp source code. Set the task function callback via set_tp_task_cb method.
 * task process queue is checked at some time interval, if process queue is not empty then task is dequed from process queue and processed by the threadpool.
 * enqueue the task to ThreadPool.
 * use the tp_task_runtime_status method to get the runtime information about the task.
