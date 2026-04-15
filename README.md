@@ -26,7 +26,9 @@ Threadpool pattern link : https://en.wikipedia.org/wiki/Thread_pool
 * use tp_check_task_complete method, to check and wait for the task to complete.
 * create variable of type tp_task_runtime_data and add it to the input parameter of the function get_task_runtime_status to get runtime status of the thread.
 * use tp_check_task_complete_native, checks and waits for the task to complete, uses native function to get information about the task.
-* end_task implementation pending. Add feature code for other hardware accelerators.
+* end_task method for TP_Task object. Check ThreadPool++.cpp source code. 
+* check_thread_status_native method to check native thread status for TP_Task Object. Check ThreadPool++.cpp source code. 
+* Add feature code for other hardware accelerators. 
 
 <b> Code example, Check the ThreadPool++.cpp code </b> 
 
