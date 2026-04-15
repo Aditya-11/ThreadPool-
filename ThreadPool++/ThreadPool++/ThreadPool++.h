@@ -54,7 +54,7 @@ Thread Pool ++
 
 namespace TP {
 
-	// TP TASK error code
+// TP TASK error code
 #define TP_NO_THREAD_FOR_TP_TASK -1
 #define TP_TASK_INVALID_STATUS -2
 #define TP_TASK_CANCELLED -3
@@ -64,6 +64,45 @@ namespace TP {
 #define UTIL_STRING_NEWLINE [](char * str_, size_t size_) { \
 	       for (int x = 0 ; x < size_ ; x++) { \
 		         if (str_[x] == '\n' || str_[x] == '\t') { str_[x] = ' '; } else { continue;} }}
+
+// windows platform Utility functions
+#ifdef WIN32
+
+#define TIME_ZONE_TYPE_ARRAY_SIZE 32
+
+// For No Time Zone 
+#define NO_TZ_STRING true
+
+auto util_time_to_string_windows = [](SYSTEMTIME t_, WCHAR* time_zone_value) {
+	std::string str_;
+	char str_time_zone_[TIME_ZONE_TYPE_ARRAY_SIZE] ;
+	WideCharToMultiByte(CP_UTF8, 0, time_zone_value, -1, &str_time_zone_[0], TIME_ZONE_TYPE_ARRAY_SIZE, NULL, NULL);
+	str_.append(std::to_string(t_.wMonth)).append("-").append(std::to_string(t_.wDay)).append("-")
+		.append(std::to_string(t_.wYear)).append(" ").append(std::to_string(t_.wHour)).append(":")
+		.append(std::to_string(t_.wMinute)).append(":").append(std::to_string(t_.wSecond)).append(".")
+		.append(std::to_string(t_.wMilliseconds)).append(" ")
+#ifndef NO_TZ_STRING
+		.append(str_time_zone_);
+#else
+		;
+#endif
+	return str_;
+};
+
+#define UTIL_THREAD_PRIORITY_WINDOWS [](int thread_priority) { \
+	switch(thread_priority) { \
+		case THREAD_PRIORITY_ABOVE_NORMAL: return "Thread Priority Above normal"; \
+		case THREAD_PRIORITY_BELOW_NORMAL: return "Thread Priority Below normal"; \
+		case THREAD_PRIORITY_HIGHEST: return "Thread Priority Highest"; \
+		case THREAD_PRIORITY_IDLE : return "Thread Priority Idle"; \
+		case THREAD_PRIORITY_LOWEST : return "Thread Priority Lowest"; \
+		case THREAD_PRIORITY_NORMAL : return "Thread Priority Normal"; \
+		case THREAD_PRIORITY_TIME_CRITICAL : return "Thread Priority time critical";\
+		default : return "Thread Priority None";\
+	}\
+}
+
+#endif
 
 typedef uint32_t tp_task_id;
 
@@ -332,8 +371,6 @@ protected:
 
 };
 
-// thread_vector -> vector of threads 
-
 class TP_Implementation_ : public Thread_Pool_ {
 
 public:
@@ -348,7 +385,13 @@ public:
 		void tp_task_function_(TP_Task task_);
 		void set_time_check_process_q_(int32_t time_);
 		int32_t get_time_check_process_q_();
-
+		bool end_task(TP_Task &task_);
+		std::string check_thread_status_native(TP_Task &task_);
+#ifdef WIN32
+		std::string check_thread_status_native(HANDLE win_handle, tp_task_id task_id, tp_task_status task_status);
+#endif
+		std::unordered_map <tp_task_id, std::string> * thread_status;
+		
 		TP_Implementation_() {
 			this->tp_instance_init_time = std::chrono::steady_clock::now();
 			this->cpu_max_hyper_threads = std::thread::hardware_concurrency();
@@ -372,6 +415,7 @@ public:
 					std::this_thread::sleep_for(tp_time_milliseconds(this->time_check_process_q_));
 				}
 				});
+			this->thread_status = new std::unordered_map <tp_task_id, std::string>();
 		}
 
 		~TP_Implementation_() {
@@ -382,6 +426,7 @@ public:
 			this->process_queue_ptr = nullptr;
 			this->completion_queue_ptr = nullptr;
 			this->check_process_q_ = false;
+			delete this->thread_status;
 		}
 
 private :
@@ -405,8 +450,6 @@ private :
 		std::queue <TP_Task>* completion_queue_ptr;
 
 		void tp_init_thread_vector();
-
-		//void tp_init_task_vector();
 
 		uint32_t cpu_max_hyper_threads;
 
@@ -499,13 +542,13 @@ uint32_t TP_Implementation_::process_task() {
 
 				tp_task_cb task_cb = task_->get_tp_task_cb();
 
+				task_->set_tp_task_status(TP_TASK_RUN);
+
 				this->thread_vec[x] = std::thread(&TP_Implementation_::tp_task_function_, this, *task_);
 
 				//this->thread_vec[x] = std::thread(task_cb);
 
 				this->task_m->insert({ task_->get_tp_task_id(), x });
-
-				task_->set_tp_task_status(TP_TASK_RUN);
 
 				this->task_vec.push_back(*task_);
 
@@ -523,8 +566,6 @@ uint32_t TP_Implementation_::process_task() {
 
 				return TP_TASK_INVALID_STATUS;
 			}
-
-
 		}
 		catch (std::exception& e) {
 			std::cout << e.what() << std::endl;
@@ -553,6 +594,8 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 bool TP_Implementation_::check_task_completed_native(TP_Task& task_, 
 	                                                              uint64_t time_in_milliseconds, std::string &output) {
 
+	tp_task_id task_id = task_.get_tp_task_id();
+
 	tp_task_status task_status_ = task_.get_tp_task_status();
 
 	assert((task_status_ <= TP_TASK_MAX_VALUE ||
@@ -570,7 +613,14 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 
 		if (task_.get_tp_task_status() == TP_TASK_ENQUEUED_PROCESS_QUEUE) {
 			task_.set_tp_task_status(TP_TASK_ENDED);
-			output.append("task enqueued to process queue");
+			output.append(" \"thread_status\": \"Task enqued to process queue, No thread assigned to the task\",\n");
+			output.append(" \"task_status\": \"").append(tp_task_status_str_arr[task_.get_tp_task_status()]).append("\"\n }");
+			return false;
+		}
+
+		else if (task_.get_tp_task_status() == TP_TASK_ENDED) {
+			output.append(" \"thread_status\": \" Task ended, No thread assigned to the task\",\n");
+			output.append(" \"task_status\": \"").append(tp_task_status_str_arr[task_.get_tp_task_status()]).append("\"\n }");
 			return false;
 		}
 
@@ -616,15 +666,21 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 
 			}
 
+			std::string t_output_usage = this->check_thread_status_native(win_handle, task_.get_tp_task_id(), TP_TASK_COMPLETED);
+
+			this->thread_status->insert({task_id , t_output_usage});
+
 			try {
 				if (this->thread_vec.at(thread_index).joinable()) {
 					this->thread_vec.at(thread_index).join();
 				}
 				task_.set_tp_task_status(TP_TASK_COMPLETED);
+				this->task_vec.at(thread_index).set_tp_task_status(TP_TASK_COMPLETED);
 			}
 			catch (std::exception &e){
 				std::cout << e.what() << std::endl;
 				task_.set_tp_task_status(TP_TASK_ENDED);
+				this->task_vec.at(thread_index).set_tp_task_status(TP_TASK_ENDED);
 			}
 
 			this->check_end_time(task_);
@@ -702,7 +758,8 @@ uint32_t TP_Implementation_::tp_find_free_thread_for_task() {
 		}
 
 #else
-// pthread implementation for linux/macos OS	
+        // pthread implementation for linux/macos OS	
+		pthread_t handle_ = this->thread_vec[x].native_handle();
 #endif
 
 	}
@@ -800,6 +857,8 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id ,
 
 	std::string t_duration_str = std::to_string(t_duration.count());
 
+	std::string thread_info_str; 
+
 	str_.append("{").append(" \n")
 		.append(" \"current_date_time\" : ").append("\" ").append(curr_t_str).append("\", \n")
 		.append(" \"method\" : \" Thread Pool ++ task_runtime_status \", \n")
@@ -809,7 +868,8 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id ,
 		.append(" \"task_end_time\" : ").append(t_end_str).append(", \n")
 		.append(" \"task_duration_time\" : ").append(t_duration_str).append(", \n")
 		.append(" \"thread_id\" : ").append(str_thread).append(", \n")
-		.append(" \"thread_run_status\" : ").append(str_thread_is_busy).append(" \n")
+		.append(" \"thread_run_status\" : ").append(str_thread_is_busy).append(", \n")
+		//.append(" \"thread_info\" : ").append(thread_info_str).append("\n")
 		.append("}").append(" \n");
 
 	if (task_runtime_data != nullptr) {
@@ -845,16 +905,20 @@ void TP_Implementation_::tp_task_function_(TP_Task t_) {
 		std::placeholders::_2);
 
 	try {
+		t_.set_tp_task_status(TP_TASK_RUN);
 		run_task(t_.get_tp_task_input_ptr() , t_.get_tp_task_output_ptr());
 		if (t_.get_tp_task_id() < this->task_vec.size()) {
 			this->task_vec.at(t_.get_tp_task_id()).set_tp_task_status(TP_TASK_COMPLETED);
 		}
 		this->check_end_time(t_);
+		t_.set_tp_task_status(TP_TASK_COMPLETED);
+		this->check_thread_status_native(t_);
 	}
 	catch (std::exception& e) {
 		std::cout << e.what() << std::endl;
 		t_.set_tp_task_status(TP_TASK_ENDED);
 		this->check_end_time(t_);
+		this->check_thread_status_native(t_);
 	}
 
 }
@@ -878,7 +942,7 @@ bool TP_Implementation_::check_task_completed(TP_Task task_) {
 
 	if (this->thread_vec[x].joinable()) {
 		this->thread_vec[x].join();
-		task_.set_tp_task_status(TP_TASK_COMPLETED);
+		task_.set_tp_task_status(TP_TASK_COMPLETED); 
 	}
 
 	return true;
@@ -926,6 +990,174 @@ void TP_Implementation_::check_start_time(TP_Task& t) {
 	tp_task_time t_ = std::chrono::steady_clock::now();
 	t.set_tp_task_start_time(t_);
 }
+
+bool TP_Implementation_::end_task(TP_Task& task_) {
+
+#ifdef  WIN32
+	try {
+		tp_task_id task_id = task_.get_tp_task_id();
+		int32_t thread_id = TP_NO_THREAD_FOR_TP_TASK;
+
+		if (this->task_m->find(task_id) != this->task_m->end()) {
+			thread_id = this->task_m->at(task_id);
+		}
+		else {
+			return false;
+		}
+		
+		HANDLE win_handle = this->thread_vec[task_id].native_handle();
+		DWORD dwExitCode = 0;
+		
+		TerminateThread(win_handle, dwExitCode);
+
+		this->task_vec[task_id].set_tp_task_status(TP_TASK_ENDED);
+		task_.set_tp_task_status(TP_TASK_ENDED);
+		
+		std::string output_ = this->check_thread_status_native(task_);
+
+		this->thread_status->insert({task_id, output_});
+
+		if (this->thread_vec[task_id].joinable()) {
+			this->thread_vec[task_id].join();
+		}
+
+		this->check_end_time(task_);
+	}
+	catch (std::exception &e) {
+		std::cout << e.what() << std::endl;
+	}
+#else
+
+#endif
+}
+
+std::string TP_Implementation_::check_thread_status_native(TP_Task& task_) {
+
+	std::string output_;
+
+	tp_task_id task_id = task_.get_tp_task_id();
+
+	if (this->thread_status->find(task_id) != this->thread_status->end()) {
+		output_ = this->thread_status->at(task_id);
+		return output_;
+	}
+
+	tp_task_status task_status = task_.get_tp_task_status();
+
+	uint32_t thread_id = TP_NO_THREAD_FOR_TP_TASK;
+
+	if (this->task_m->find(task_id) != this->task_m->end()) {
+		thread_id = this->task_m->at(task_id);
+	}
+	else {
+		return output_;
+	}
+
+#ifdef WIN32
+	HANDLE win_handle = this->thread_vec.at(thread_id).native_handle();
+	output_ = this->check_thread_status_native(win_handle, task_id , task_status);
+
+	if (task_status == TP_TASK_COMPLETED &&
+							                task_status == TP_TASK_ENDED) {
+		this->thread_status->insert({ task_id, output_ });
+	}
+#else
+
+#endif
+
+	return output_;
+}
+
+
+#ifdef WIN32
+std::string TP_Implementation_::check_thread_status_native(HANDLE win_handle, tp_task_id task_id, 
+	                                                                    tp_task_status task_status) {
+
+	std::string output_;
+
+	if (this->thread_status->find(task_id) != this->thread_status->end()) {
+		output_ = this->thread_status->at(task_id);
+		return output_;
+	}
+
+	int win_thread_priority = GetThreadPriority(win_handle);
+
+	std::string win_thread_priority_str = UTIL_THREAD_PRIORITY_WINDOWS(win_thread_priority);
+
+	FILETIME thread_creation_time;
+	FILETIME thread_exit_time;
+	FILETIME thread_kernel_time;
+	FILETIME thread_user_time;
+
+	std::string thread_creation_time_str = "";
+	std::string thread_end_time_str = "";
+
+	GetThreadTimes(
+		win_handle,
+		&thread_creation_time,
+		&thread_exit_time,
+		&thread_kernel_time,
+		&thread_user_time
+	);
+
+	bool thread_running_status = false;
+
+	if (thread_exit_time.dwHighDateTime == 0 &&
+											thread_exit_time.dwLowDateTime == 0) {
+		thread_running_status = true;
+	}
+
+	SYSTEMTIME thread_creation_system_time;
+	SYSTEMTIME thread_exit_system_time;
+
+	SYSTEMTIME thread_creation_system_time_value;
+	SYSTEMTIME thread_exit_system_time_value;
+
+	FileTimeToSystemTime(&thread_creation_time, &thread_creation_system_time);
+
+	if (!thread_running_status) FileTimeToSystemTime(&thread_exit_time, &thread_exit_system_time);
+
+	TIME_ZONE_INFORMATION tmz_info;
+	GetTimeZoneInformation(&tmz_info);
+
+	SystemTimeToTzSpecificLocalTime(
+		&tmz_info,
+		&thread_creation_system_time,
+		&thread_creation_system_time_value
+	);
+
+	if (!thread_running_status) {
+		SystemTimeToTzSpecificLocalTime(
+		    &tmz_info,
+			&thread_exit_system_time,
+			&thread_exit_system_time_value
+		);
+	}
+
+	// Time zone standard name 
+
+	thread_creation_time_str = util_time_to_string_windows(thread_creation_system_time_value, &tmz_info.StandardName[0]);
+	
+	if (!thread_running_status) {
+		thread_end_time_str = util_time_to_string_windows(thread_exit_system_time_value, &tmz_info.StandardName[0]);
+	}
+	else {
+		thread_end_time_str = "none";
+	}
+
+	std::string str_;
+
+	output_.append("{\n").append(" \"method\": \"check CPU thread status native\", \n")
+		.append(" \"task_id\": \"").append(std::to_string(task_id)).append("\", \n")
+		.append(" \"platform\": ").append(" \"WINDOWS\", \n")
+		.append(" \"start_time\": \"").append(thread_creation_time_str).append("\",\n")
+	    .append(" \"complete_time\": \"").append(thread_end_time_str).append("\",\n")
+		.append(" \"os_thread_priority\": \"").append(win_thread_priority_str).append("\" \n")
+	    .append("}\n");
+
+	return output_;
+}
+#endif
 
 void TP_Implementation_::check_end_time(TP_Task& t) {
 	tp_task_time t_start_ = t.get_tp_task_start_time();

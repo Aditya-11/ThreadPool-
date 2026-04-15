@@ -87,12 +87,19 @@ int main()
 	cout << tp->get_task_runtime_status(t5.get_tp_task_id()) << endl;
 	std::this_thread::sleep_for(tp_time_milliseconds(350));
 
-	//cout << tp->get_task_runtime_status(t5.get_tp_task_id()) << endl;
+	std::string str_1;
+	std::string str_2;
+	std::string str_3;
 
-	tp->check_task_completed(t1);
-	tp->check_task_completed(t2);
-	tp->check_task_completed(t3);
-	
+	tp->check_task_completed_native(t1, 5000, str_1);
+	std::cout << str_1 << std::endl;
+	tp->check_task_completed_native(t2, 5000, str_2);
+	std::cout << str_2 << std::endl;
+	tp->check_task_completed_native(t3, 5000, str_3);
+	std::cout << str_3 << std::endl;
+
+	tp->end_task(t5);
+
 	std::string str_t5;
 	tp->check_task_completed_native(t5, 5000, str_t5);
 
@@ -143,6 +150,13 @@ int main()
 	cout << t4_runtime_data.task_id << t4_runtime_data.thread_run_status
 		 << " " << t4_runtime_data.task_start << " " << t4_runtime_data.task_end
 		 << " " << t4_runtime_data.thread_id << std::endl;
+
+	// CPU thread status 
+	std::cout << tp->check_thread_status_native(t1) << std::endl;
+	std::cout << tp->check_thread_status_native(t2) << std::endl;
+	std::cout << tp->check_thread_status_native(t3) << std::endl;
+	std::cout << tp->check_thread_status_native(t4) << std::endl;
+	std::cout << tp->check_thread_status_native(t5) << std::endl;
 
 	TP::TP_Task* task = new TP::TP_Task();
 	TP::tp_task_input_ptr task_input = new int(0);
