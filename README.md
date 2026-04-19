@@ -16,7 +16,7 @@ Threadpool pattern link : https://en.wikipedia.org/wiki/Thread_pool
 * Add ThreadPool++.h header file to the c++ project.
 * thread pool manages tasks and threads resources, create the tasks which can run parallely, enqueue the task to Thread pool.
 * When thread pool memory is freed, thread pool checks and waits for all the task to complete.
-* Thread Pool ++ implemented for only windows OS, Pthread implementation is pending for Macos and linux.
+* Thread Pool ++ implemented for windows OS via WIN32 library and Linux OS via Pthread library.
 * create a new task object via TP_Task class, add function (code) via set_tp_task_cb method to run parallel task.
 * Set input variable pointer of the task via set_tp_task_input_ptr method and set output variable pointer of the task via set_tp_task_output_ptr. typecast the tp_task_input_ptr and tp_task_output_ptr variables at the function defined, check ThreadPool++.cpp source code. Set the task function callback via set_tp_task_cb method.
 * task process queue is checked at some time interval, if process queue is not empty then task is dequed from process queue and processed by the threadpool.
