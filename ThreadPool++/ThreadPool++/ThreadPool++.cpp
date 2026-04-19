@@ -146,17 +146,22 @@ int main()
 	cout << tp->get_task_runtime_status(t3.get_tp_task_id()) << endl;
 	cout << tp->get_task_runtime_status(t4.get_tp_task_id(), &t4_runtime_data) << endl;
 	cout << tp->get_task_runtime_status(t5.get_tp_task_id()) << endl;
-
-	cout << t4_runtime_data.task_id << t4_runtime_data.thread_run_status
-		 << " " << t4_runtime_data.task_start << " " << t4_runtime_data.task_end
-		 << " " << t4_runtime_data.thread_id << std::endl;
+	
+	cout << t4_runtime_data.task_id << t4_runtime_data.thread_run_status << " " 
+	<< t4_runtime_data.task_start.count() << " " << t4_runtime_data.task_end.count() 
+	<< " " << t4_runtime_data.thread_id << std::endl;
 
 	// CPU thread status 
 	std::cout << tp->check_thread_status_native(t1) << std::endl;
+	std::this_thread::sleep_for(tp_time_milliseconds(35));
 	std::cout << tp->check_thread_status_native(t2) << std::endl;
+	std::this_thread::sleep_for(tp_time_milliseconds(25));
 	std::cout << tp->check_thread_status_native(t3) << std::endl;
+	std::this_thread::sleep_for(tp_time_milliseconds(35));
 	std::cout << tp->check_thread_status_native(t4) << std::endl;
+	std::this_thread::sleep_for(tp_time_milliseconds(25));
 	std::cout << tp->check_thread_status_native(t5) << std::endl;
+	std::this_thread::sleep_for(tp_time_milliseconds(35));
 
 	TP::TP_Task* task = new TP::TP_Task();
 	TP::tp_task_input_ptr task_input = new int(0);
@@ -176,8 +181,12 @@ int main()
 	tp->enqueue_task(*task);
 	tp_task_id task_id = task->get_tp_task_id();
 
+	std::this_thread::sleep_for(tp_time_milliseconds(35));
+
 	// get runtime status of the task in JSON.
 	std::cout << tp->get_task_runtime_status(task_id) << std::endl;
+
+	std::this_thread::sleep_for(tp_time_milliseconds(25));
 
 	// check and wait for the task, get task completed output in JSON.
 	std::string task_completed_output;
@@ -194,7 +203,7 @@ int main()
 	delete tp;
 
 	delete task;
-	delete task_input;
+    delete task_input;
 	delete task_output;
 
 	delete t1_input;

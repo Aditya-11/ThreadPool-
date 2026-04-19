@@ -1,29 +1,29 @@
 ﻿// ThreadPool++.h : Include file for standard system include files,
 // or project specific include files.
 
-// Thread Pool ++ library 
+// Thread Pool ++ library
 // Developed by Aditya Dubey
 
 /*
 Thread Pool ++
-	
-	Create Parallel Tasks (TP_Task Objects) which could run parallely on hyperthreads of multicore CPU processor 
-	enqueue_task: add tasks to ThreadPool 
-	get_task_runtime_status : check runtime performance and status of the task 
- 	end_task : end task if task not required 
+
+	Create Parallel Tasks (TP_Task Objects) which could run parallely on hyperthreads of multicore CPU processor
+	enqueue_task: add tasks to ThreadPool
+	get_task_runtime_status : check runtime performance and status of the task
+ 	end_task : end task if task not required
 	check_task_completed : checks and waits until the task is completed
-	check_task_completed_native : checks and waits until the task completed, returns information related to thread. 
-	ThreadPool manages tasks and threads resources, ThreadPool maps tasks to threads 
+	check_task_completed_native : checks and waits until the task completed, returns information related to thread.
+	ThreadPool manages tasks and threads resources, ThreadPool maps tasks to threads
 
-	Library : 
+	Library :
     C++ STANDARD TEMPLATE LIBRARY (STL) , C++11 standard
-	WIN32 Library for windows native implementation 
-	PTHREAD Library for Macos and linux native implementation 
+	WIN32 Library for windows native implementation
+	PTHREAD Library for Macos and linux native implementation
 
-	Code and support of other features for Thread Pool ++ Library : 
-	Add code and support for GPU hardware, via native API or cross platform framework 
+	Code and support of other features for Thread Pool ++ Library :
+	Add code and support for GPU hardware, via native API or cross platform framework
 	Add code and support for Macos and linux native implementation via Pthread Library
-	Add code and support for other Hardware Accelerators 
+	Add code and support for other Hardware Accelerators
 
 */
 
@@ -42,14 +42,21 @@ Thread Pool ++
 #include <string>
 #include <ctime>
 #include <chrono>
+#include <atomic>
+#include <cstring>
 
 // Use Native CPU thread Implementation based on Operating System
 #ifdef WIN32
 	// Windows OS
 	#include <Windows.h>
 #else
-	// Linux or MACOS 
+	// Linux or MACOS
 	#include <pthread.h>
+
+	#ifdef __linux__
+		#include <unistd.h>
+	#endif
+
 #endif
 
 namespace TP {
@@ -70,7 +77,7 @@ namespace TP {
 
 #define TIME_ZONE_TYPE_ARRAY_SIZE 32
 
-// For No Time Zone 
+// For No Time Zone
 #define NO_TZ_STRING true
 
 auto util_time_to_string_windows = [](SYSTEMTIME t_, WCHAR* time_zone_value) {
@@ -104,18 +111,44 @@ auto util_time_to_string_windows = [](SYSTEMTIME t_, WCHAR* time_zone_value) {
 
 #endif
 
+// linux platform utility functions
+#ifdef __linux__ 
+#ifdef __cplusplus
+
+#define PTHREAD_JOINED 0
+
+#define util_thread_join_output_to_str_linux [](int output) { \
+	switch(output) { \
+		case EINVAL: return "pthread_join, invalid argument"; \
+		case ESRCH: return "pthread_join, No such process"; \
+		case ETIMEDOUT: return "pthread_join, time out thread couldnt be joined"; \
+		case EBUSY: return "pthread_join, thread is busy"; \
+		case PTHREAD_JOINED : return "pthread_join, thread joined success"; \
+		default : return "default" ;\
+	} } \ 
+
+#define util_check_thread_is_running [](int thread_status) { \
+	if (thread_status == ETIMEDOUT || thread_status == EBUSY) {\
+		return true;\
+	} \ 
+	return false; \
+}
+
+#endif
+#endif
+
 typedef uint32_t tp_task_id;
 
-// task time 
+// task time
 typedef std::chrono::time_point<std::chrono::steady_clock> tp_task_time;
 
-// task duration in milliseconds 
+// task duration in milliseconds
 typedef std::chrono::milliseconds tp_time_milliseconds;
 
 // task duration in seconds
 typedef std::chrono::seconds tp_time_seconds;
 
-// task status 
+// task status
 typedef enum {
 	TP_TASK_MIN_VALUE = 0x00,
 	TP_TASK_ENQUEUED_PROCESS_QUEUE = 0x01,
@@ -160,12 +193,12 @@ typedef struct tp_task_runtime_data{
 
 };
 
-// Thread Pool Task Implementaion 
+// Thread Pool Task Implementaion
 class TP_Task {
 
 public:
 
-// thread_id associated with the TP_Task 
+// thread_id associated with the TP_Task
 uint32_t thread_id;
 
 	TP_Task(tp_task_id id, tp_task_status status, tp_task_cb run_cb, tp_task_cb complete_cb)
@@ -316,25 +349,25 @@ tp_time_milliseconds TP_Task::get_tp_task_duration() {
 	return this->task_duration;
 }
 
-// Thread Safe Implementation 
+// Thread Safe Implementation
 
-// Thread Pool Process Queue 
+// Thread Pool Process Queue
 std::queue <TP_Task*> process_queue;
 
 // boolean to track added to queue
 std::atomic<bool> added_to_process_queue = false;
 
-// boolean to track get from queue 
+// boolean to track get from queue
 std::atomic<bool> get_from_process_queue = false;
 
-// Mutex 
+// Mutex
 std::mutex process_queue_mutex;
 
-// conditional_variable process_queue 
+// conditional_variable process_queue
 
 std::condition_variable process_q_conditonal_var ;
 
-// Thread Pool Completion Queue  
+// Thread Pool Completion Queue
 std::queue <TP_Task> completion_queue;
 
 // boolean to track added to queue
@@ -388,18 +421,40 @@ public:
 		bool end_task(TP_Task &task_);
 		std::string check_thread_status_native(TP_Task &task_);
 #ifdef WIN32
+		// WINDOWS Specific feature
 		std::string check_thread_status_native(HANDLE win_handle, tp_task_id task_id, tp_task_status task_status);
 #endif
+#ifdef __linux__
+		// Linux Specific feature
+		// Linux pthread id to kernel id
+		std::unordered_map <pthread_t, int> * tid_m;
+		int check_tid_thread();
+#endif
 		std::unordered_map <tp_task_id, std::string> * thread_status;
-		
+
 		TP_Implementation_() {
 			this->tp_instance_init_time = std::chrono::steady_clock::now();
 			this->cpu_max_hyper_threads = std::thread::hardware_concurrency();
+			#ifdef WIN32
 			assert(this->cpu_max_hyper_threads > 0, "Failed Thread Pool Initialization, threads == 0");
+			#else
+			
+			#ifdef __linux__
+			assert(this->cpu_max_hyper_threads > 0);
+			#endif
+			
+			#endif
 			this->thread_vec.resize(this->cpu_max_hyper_threads);
 			tp_init_thread_vector();
 
+			#ifdef WIN32
 			assert(this->thread_vec.size() == this->cpu_max_hyper_threads, "Thread Vec not initialized ");
+			#else
+			#ifdef __linux__
+			assert(this->thread_vec.size() == this->cpu_max_hyper_threads);
+			#endif
+			#endif
+
 			this->task_m = new std::unordered_map <tp_task_id, int>();
 			this->process_queue_ptr = &process_queue;
 			this->completion_queue_ptr = &completion_queue;
@@ -416,6 +471,12 @@ public:
 				}
 				});
 			this->thread_status = new std::unordered_map <tp_task_id, std::string>();
+
+			#ifdef __linux__
+				this->tid_m = new std::unordered_map <pthread_t, int>();
+				this->thread_status_vec.resize(this->cpu_max_hyper_threads);
+				assert(this->thread_status_vec.size() == this->cpu_max_hyper_threads);
+			#endif 
 		}
 
 		~TP_Implementation_() {
@@ -427,6 +488,9 @@ public:
 			this->completion_queue_ptr = nullptr;
 			this->check_process_q_ = false;
 			delete this->thread_status;
+			#ifdef __linux__
+			delete this->tid_m;
+			#endif
 		}
 
 private :
@@ -439,10 +503,10 @@ private :
 
 		std::condition_variable process_q_conditional_var;
 
-		// HasH Table : tp_task_id -> vector thread index  
+		// HasH Table : tp_task_id -> vector thread index
 		std::unordered_map <tp_task_id, int> * task_m;
 
-		// Hash Table : thread index -> tp_task  
+		// Hash Table : thread index -> tp_task
 		std::vector <TP_Task> task_vec;
 
 		std::vector<std::thread> thread_vec;
@@ -472,6 +536,10 @@ private :
 		void check_end_time(TP_Task& t);
 
 		int32_t time_check_process_q_;
+
+		#ifdef __linux__
+			std::vector<bool> thread_status_vec; 
+	    #endif
 };
 
 uint32_t TP_Implementation_::enqueue_task(TP_Task &task_) {
@@ -490,13 +558,13 @@ uint32_t TP_Implementation_::enqueue_task(TP_Task &task_) {
 		});
 
 	*(this->add_to_process_q) = false;
-
+	
 	lk.unlock();
-
+	
 	this->process_q_conditional_var.notify_all();
-
+	
 	this->process_task();
-
+	
 	return 0;
 }
 
@@ -507,9 +575,6 @@ uint32_t TP_Implementation_::process_task() {
 	uint32_t x = this->tp_find_free_thread_for_task();
 
 	if (x != TP_NO_THREAD_FOR_TP_TASK) {
-#ifdef WIN32
-
-		// windows implementation via WIN32 API
 
 		try {
 
@@ -546,6 +611,13 @@ uint32_t TP_Implementation_::process_task() {
 
 				this->thread_vec[x] = std::thread(&TP_Implementation_::tp_task_function_, this, *task_);
 
+				this->thread_status_vec[x] = true;
+
+				#ifdef __linux__
+					pthread_t t_handle = this->thread_vec[x].native_handle();
+					this->tid_m->insert({t_handle, 0});
+				#endif
+
 				//this->thread_vec[x] = std::thread(task_cb);
 
 				this->task_m->insert({ task_->get_tp_task_id(), x });
@@ -572,10 +644,6 @@ uint32_t TP_Implementation_::process_task() {
 
 			return TP_NO_THREAD_FOR_TP_TASK;
 		}
-#else
-		// linux / Macos implementation 
-
-#endif
 	}
 
 	return TP_NO_THREAD_FOR_TP_TASK;
@@ -586,26 +654,32 @@ tp_task_status TP_Implementation_::get_task_status(TP_Task task_) {
 	return task_.get_tp_task_status();
 }
 
-bool TP_Implementation_::check_task_completed_native(TP_Task& task_, 
+bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 	                                                               std::string &output) {
 	return this->check_task_completed_native(task_, 3000, output);
 }
 
-bool TP_Implementation_::check_task_completed_native(TP_Task& task_, 
+bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 	                                                              uint64_t time_in_milliseconds, std::string &output) {
 
 	tp_task_id task_id = task_.get_tp_task_id();
 
 	tp_task_status task_status_ = task_.get_tp_task_status();
 
+	#if WIN32
 	assert((task_status_ <= TP_TASK_MAX_VALUE ||
 		                                 task_status_ >= TP_TASK_MIN_VALUE),
-		                                                           " Invalid TP Task Status ");
+										                   " Invalid TP Task Status ");
+	#else
+	#ifdef __linux__
+		assert((task_status_ <= TP_TASK_MAX_VALUE ||
+		                                        task_status_ >= TP_TASK_MIN_VALUE));
+	#endif
+	#endif
+
 	output.append("{ \n");
 	output.append(" \"method\" : \" THREAD POOL ++ check_task_completed_native \", \n");
 	output.append(" \"task_id\" : ").append(std::to_string(task_.get_tp_task_id())).append(", \n");
-
-#ifdef WIN32
 
 	try {
 
@@ -637,6 +711,8 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 			else {
 				return false;
 			}
+
+			#ifdef WIN32
 
 			HANDLE win_handle = this->thread_vec.at(thread_index).native_handle();
 
@@ -670,6 +746,40 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 
 			this->thread_status->insert({task_id , t_output_usage});
 
+			#else
+
+				#ifdef __linux__
+
+					pthread_t handle_ = this->thread_vec.at(thread_index).native_handle();
+
+					timespec ts_ = {0};
+
+					ts_.tv_sec  = (long int) (time_in_milliseconds / 1000);
+
+					ts_.tv_nsec = (time_in_milliseconds % 1000);
+
+					ts_.tv_nsec *= 1000;
+
+					int output_ = pthread_timedjoin_np(handle_, NULL, &ts_);
+
+					std::string output_str = util_thread_join_output_to_str_linux(output_);
+
+					output.append(" \"thread_status\" : \"").append(output_str).append("\", \n");
+
+					if (output_ == PTHREAD_JOINED) {
+						task_.set_tp_task_status(TP_TASK_COMPLETED);
+						this->task_vec.at(thread_index).set_tp_task_status(TP_TASK_COMPLETED);
+						this->check_end_time(task_);
+						task_status_ = task_.get_tp_task_status();
+				        output.append(" \"task_status\" : \"").append(tp_task_status_str_arr[task_status_]).append("\" \n");
+			            output.append("}\n");
+				        return true;
+					}
+
+				#endif
+
+			#endif
+
 			try {
 				if (this->thread_vec.at(thread_index).joinable()) {
 					this->thread_vec.at(thread_index).join();
@@ -694,7 +804,6 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 			//this->task_m->insert({ task_.get_tp_task_id() , TP_TASK_CANCELLED });
 
 			return true;
-
 		}
 
 		else {
@@ -716,11 +825,6 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 		return false;
 	}
 
-#else 
-	// linux / MACOS implementation 
-
-#endif
-
 }
 
 void TP_Implementation_::tp_init_thread_vector() {
@@ -734,7 +838,7 @@ void TP_Implementation_::tp_init_thread_vector() {
 uint32_t TP_Implementation_::tp_find_free_thread_for_task() {
 
 	for (int x = 0; x < this->cpu_max_hyper_threads; x++) {
-		// implementation for Windows 
+		// implementation for Windows
 
 #ifdef WIN32
 // windows native thread implementation
@@ -758,8 +862,23 @@ uint32_t TP_Implementation_::tp_find_free_thread_for_task() {
 		}
 
 #else
-        // pthread implementation for linux/macos OS	
-		pthread_t handle_ = this->thread_vec[x].native_handle();
+	#ifdef __linux__
+        // pthread implementation for linux/macos OS
+	
+	try {
+		if (this->thread_status_vec[x] == false) {
+			if (this->thread_vec[x].joinable()) {
+				this->thread_vec[x].join();
+			}
+			return x;
+		}
+		else continue;
+	}
+	catch (std::exception &e) {
+		std::cout << e.what() << std::endl;	
+	}
+	#endif
+
 #endif
 
 	}
@@ -768,14 +887,12 @@ uint32_t TP_Implementation_::tp_find_free_thread_for_task() {
 }
 
 
-std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id , 
+std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id ,
 																tp_task_runtime_data* task_runtime_data) {
 
 	std::string str_ = "";
 
-#ifdef WIN32
-
-	// Use WIN32 Thread Information API also  
+	// Use WIN32 Thread Information API also
 
 	int x = TP_NO_THREAD_FOR_TP_TASK;
 
@@ -789,6 +906,7 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id ,
 		return str_;
 	}
 
+	#ifdef WIN32
 	HANDLE win_handle = this->thread_vec[x].native_handle();
 
 	DWORD exitCode;
@@ -813,29 +931,62 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id ,
 													thread_info_class_size
 													);
 	*/
+	#else
+
+		bool thread_is_busy = false;
+		
+		int thread_id = 0;
+
+		#ifdef __linux__
+
+			pthread_t handle_ = this->thread_vec[x].native_handle(); 
+
+			thread_is_busy = this->thread_status_vec[task_id];
+
+			if (this->tid_m->find(handle_) != this->tid_m->end()) {
+			  thread_id = this->tid_m->at(handle_);
+			}
+			else {
+			  thread_id = 0;
+			}
+
+		#endif
+
+	#endif
 
 	TP_Task task_ = this->task_vec.at(x);
 
 	tp_task_status task_status_ = task_.get_tp_task_status();
 
 	std::string str_task_id = std::to_string(task_id);
-	std::string str_thread = std::to_string(thread_id);
-	std::string str_thread_is_busy = std::to_string(thread_is_busy);
+
+	std::string str_thread;
+	std::string str_thread_is_busy;
+	
+	str_thread = std::to_string(thread_id);
+	str_thread_is_busy = std::to_string(thread_is_busy);
 
 	std::chrono::system_clock::time_point now_clock = std::chrono::system_clock::now();
 
 	std::time_t curr_t = std::chrono::system_clock::to_time_t(now_clock);
 
 	char* curr_t_str = std::ctime(&curr_t);
-
+    
 	size_t curr_str_len = strlen(curr_t_str);
 
 	UTIL_STRING_NEWLINE(curr_t_str, curr_str_len);
 
+	#ifdef WIN32
 	assert((task_status_ <= TP_TASK_MAX_VALUE ||
 						task_status_ >= TP_TASK_MIN_VALUE),
 											" Invalid TP Task Status ");
-
+	#else 
+	#ifdef __linux__
+	assert((task_status_ <= TP_TASK_MAX_VALUE) ||
+                                                  task_status_ >= TP_TASK_MIN_VALUE);
+	#endif
+	#endif
+	
 	const char* str_task_status = tp_task_status_str_arr[task_status_];
 
 	tp_time_milliseconds t_start = std::chrono::duration_cast <tp_time_milliseconds>
@@ -857,7 +1008,7 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id ,
 
 	std::string t_duration_str = std::to_string(t_duration.count());
 
-	std::string thread_info_str; 
+	std::string thread_info_str;
 
 	str_.append("{").append(" \n")
 		.append(" \"current_date_time\" : ").append("\" ").append(curr_t_str).append("\", \n")
@@ -885,10 +1036,6 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id ,
 
 	}
 
-#else
-
-#endif
-
 	return str_;
 }
 
@@ -899,24 +1046,49 @@ std::string TP_Implementation_::get_task_runtime_status(tp_task_id task_id) {
 }
 
 void TP_Implementation_::tp_task_function_(TP_Task t_) {
+	
+	tp_task_id task_id = t_.get_tp_task_id();
 
 	tp_task_cb run_task = std::bind(t_.get_tp_task_cb(),
 		std::placeholders::_1,
 		std::placeholders::_2);
 
 	try {
-		t_.set_tp_task_status(TP_TASK_RUN);
+		t_.set_tp_task_status(TP_TASK_RUN); 
+		
+		#ifdef __linux__
+			
+		    int t_id = this->check_tid_thread(); 
+			int thread_id;
+			pthread_t p_thread_handle;
+
+			if (this->task_m->find(task_id) != this->task_m->end()) {  
+				p_thread_handle =  this->thread_vec[task_id].native_handle();
+			}
+			
+			this->tid_m->insert({p_thread_handle , t_id});
+			this->thread_status_vec[task_id] = true;
+		#endif
+
 		run_task(t_.get_tp_task_input_ptr() , t_.get_tp_task_output_ptr());
 		if (t_.get_tp_task_id() < this->task_vec.size()) {
 			this->task_vec.at(t_.get_tp_task_id()).set_tp_task_status(TP_TASK_COMPLETED);
 		}
 		this->check_end_time(t_);
 		t_.set_tp_task_status(TP_TASK_COMPLETED);
+		this->task_vec[task_id].set_tp_task_status(TP_TASK_COMPLETED);
 		this->check_thread_status_native(t_);
+		
+		#ifdef __linux__ 
+			this->thread_status_vec[task_id] = false;
+			//this->tid_m->insert({p_thread_handle, 0});
+		#endif
+
 	}
 	catch (std::exception& e) {
 		std::cout << e.what() << std::endl;
 		t_.set_tp_task_status(TP_TASK_ENDED);
+		this->task_vec[task_id].set_tp_task_status(TP_TASK_ENDED);
 		this->check_end_time(t_);
 		this->check_thread_status_native(t_);
 	}
@@ -942,7 +1114,7 @@ bool TP_Implementation_::check_task_completed(TP_Task task_) {
 
 	if (this->thread_vec[x].joinable()) {
 		this->thread_vec[x].join();
-		task_.set_tp_task_status(TP_TASK_COMPLETED); 
+		task_.set_tp_task_status(TP_TASK_COMPLETED);
 	}
 
 	return true;
@@ -1004,15 +1176,15 @@ bool TP_Implementation_::end_task(TP_Task& task_) {
 		else {
 			return false;
 		}
-		
+
 		HANDLE win_handle = this->thread_vec[task_id].native_handle();
 		DWORD dwExitCode = 0;
-		
+
 		TerminateThread(win_handle, dwExitCode);
 
 		this->task_vec[task_id].set_tp_task_status(TP_TASK_ENDED);
 		task_.set_tp_task_status(TP_TASK_ENDED);
-		
+
 		std::string output_ = this->check_thread_status_native(task_);
 
 		this->thread_status->insert({task_id, output_});
@@ -1027,7 +1199,8 @@ bool TP_Implementation_::end_task(TP_Task& task_) {
 		std::cout << e.what() << std::endl;
 	}
 #else
-
+	// linux and macOS implementation
+	return false;
 #endif
 }
 
@@ -1062,6 +1235,10 @@ std::string TP_Implementation_::check_thread_status_native(TP_Task& task_) {
 		this->thread_status->insert({ task_id, output_ });
 	}
 #else
+	
+	#ifdef __linux__
+
+	#endif
 
 #endif
 
@@ -1070,7 +1247,7 @@ std::string TP_Implementation_::check_thread_status_native(TP_Task& task_) {
 
 
 #ifdef WIN32
-std::string TP_Implementation_::check_thread_status_native(HANDLE win_handle, tp_task_id task_id, 
+std::string TP_Implementation_::check_thread_status_native(HANDLE win_handle, tp_task_id task_id,
 	                                                                    tp_task_status task_status) {
 
 	std::string output_;
@@ -1134,10 +1311,10 @@ std::string TP_Implementation_::check_thread_status_native(HANDLE win_handle, tp
 		);
 	}
 
-	// Time zone standard name 
+	// Time zone standard name
 
 	thread_creation_time_str = util_time_to_string_windows(thread_creation_system_time_value, &tmz_info.StandardName[0]);
-	
+
 	if (!thread_running_status) {
 		thread_end_time_str = util_time_to_string_windows(thread_exit_system_time_value, &tmz_info.StandardName[0]);
 	}
@@ -1175,6 +1352,13 @@ void TP_Implementation_::set_time_check_process_q_(int32_t time_) {
 int32_t TP_Implementation_::get_time_check_process_q_() {
 	return this->time_check_process_q_;
 }
+
+#ifdef __linux__
+	
+int TP_Implementation_::check_tid_thread() {
+		return gettid();
+	}
+#endif
 
 typedef TP_Implementation_ TP_CPU_CLASS;
 }

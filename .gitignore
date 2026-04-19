@@ -53,3 +53,8 @@
 /ThreadPool++/ThreadPool++/x64/Release/ZERO_CHECK/ZERO_CHECK.tlog/CustomBuild.write.1.tlog
 /ThreadPool++/ThreadPool++/x64/Release/ZERO_CHECK/ZERO_CHECK.tlog/ZERO_CHECK.lastbuildstate
 /ThreadPool++/ThreadPool++/ZERO_CHECK.vcxproj.user
+ThreadPool++/ThreadPool++/ThreadPool++.h.gch
+ThreadPool++/ThreadPool++/ThreadPool++
+ThreadPool++/ThreadPool++/a.out
+.vscode/launch.json
+.vscode/tasks.json
