@@ -115,6 +115,12 @@ typedef std::chrono::milliseconds tp_time_milliseconds;
 // task duration in seconds
 typedef std::chrono::seconds tp_time_seconds;
 
+// task duration in nano seconds
+typedef std::chrono::nanoseconds tp_time_nanoseconds;
+
+// task duration in nano seconds
+#define TP_END_TASK_WAIT_TIME 3334
+
 // task status 
 typedef enum {
 	TP_TASK_MIN_VALUE = 0x00,
@@ -1009,6 +1015,8 @@ bool TP_Implementation_::end_task(TP_Task& task_) {
 		DWORD dwExitCode = 0;
 		
 		TerminateThread(win_handle, dwExitCode);
+
+		std::this_thread::sleep_for(tp_time_nanoseconds(TP_END_TASK_WAIT_TIME));
 
 		this->task_vec[task_id].set_tp_task_status(TP_TASK_ENDED);
 		task_.set_tp_task_status(TP_TASK_ENDED);

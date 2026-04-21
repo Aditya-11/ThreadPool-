@@ -53,3 +53,6 @@
 /ThreadPool++/ThreadPool++/x64/Release/ZERO_CHECK/ZERO_CHECK.tlog/CustomBuild.write.1.tlog
 /ThreadPool++/ThreadPool++/x64/Release/ZERO_CHECK/ZERO_CHECK.tlog/ZERO_CHECK.lastbuildstate
 /ThreadPool++/ThreadPool++/ZERO_CHECK.vcxproj.user
+/ThreadPool++/ThreadPool++/.vscode
+/ThreadPool++/ThreadPool++/x64/Debug/ALL_BUILD
+/ThreadPool++/ThreadPool++/ThreadPool++.dir/RelWithDebInfo
