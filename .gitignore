@@ -56,3 +56,8 @@
 /ThreadPool++/ThreadPool++/.vscode
 /ThreadPool++/ThreadPool++/x64/Debug/ALL_BUILD
 /ThreadPool++/ThreadPool++/ThreadPool++.dir/RelWithDebInfo
+ThreadPool++/ThreadPool++/ThreadPool++.h.gch
+ThreadPool++/ThreadPool++/ThreadPool++
+ThreadPool++/ThreadPool++/a.out
+.vscode/launch.json
+.vscode/tasks.json
