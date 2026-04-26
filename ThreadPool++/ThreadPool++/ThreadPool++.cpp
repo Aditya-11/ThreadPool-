@@ -163,6 +163,18 @@ int main()
 	<< t4_runtime_data.task_start.count() << " " << t4_runtime_data.task_end.count() 
 	<< " " << t4_runtime_data.thread_id << std::endl;
 
+	// CPU thread status 
+	std::cout << tp->check_thread_status_native(t1) << std::endl;
+	std::this_thread::sleep_for(tp_time_milliseconds(350));
+	std::cout << tp->check_thread_status_native(t2) << std::endl;
+	std::this_thread::sleep_for(tp_time_milliseconds(250));
+	std::cout << tp->check_thread_status_native(t3) << std::endl;
+	std::this_thread::sleep_for(tp_time_milliseconds(350));
+	std::cout << tp->check_thread_status_native(t4) << std::endl;
+	std::this_thread::sleep_for(tp_time_milliseconds(250));
+	std::cout << tp->check_thread_status_native(t5) << std::endl;
+	std::this_thread::sleep_for(tp_time_milliseconds(350));
+
 	TP::TP_Task* task = new TP::TP_Task();
 	TP::tp_task_input_ptr task_input = new int(0);
 	TP::tp_task_output_ptr task_output = new int(0);
