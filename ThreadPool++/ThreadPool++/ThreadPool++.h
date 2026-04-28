@@ -163,7 +163,7 @@ typedef std::chrono::seconds tp_time_seconds;
 typedef std::chrono::nanoseconds tp_time_nanoseconds;
 
 // task duration in nano seconds
-#define TP_END_TASK_WAIT_TIME 3334
+#define TP_END_TASK_WAIT_TIME 3433
 
 // task status 
 typedef enum {
@@ -186,6 +186,15 @@ static const char* tp_task_status_str_arr[] = {
 	"TP_TASK_ENDED",
 	"TP_TASK_MAX_VALUE"
 };
+
+// task Priority 
+typedef enum {
+	TP_TASK_PRIORITY_LOWEST = 0x0A,
+	TP_TASK_PRIORITY_LOW = 0x0B,
+	TP_TASK_PRIORITY_NORMAL = 0x0C,
+	TP_TASK_PRIORITY_HIGH = 0x0D,
+	TP_TASK_PRIORITY_HIGHEST = 0X0E
+} tp_task_priority;
 
 // task_call_back
 typedef std::function<void(void *,void *)> tp_task_cb;
@@ -437,6 +446,7 @@ public:
 		int32_t get_time_check_process_q_();
 		bool end_task(TP_Task &task_);
 		std::string check_thread_status_native(TP_Task &task_);
+		bool set_task_priority(TP_Task &task_, tp_task_priority task_priority);
 #ifdef WIN32
 		// WINDOWS Specific feature
 		std::string check_thread_status_native(HANDLE win_handle, tp_task_id task_id, tp_task_status task_status);
@@ -1484,6 +1494,66 @@ void TP_Implementation_::set_time_check_process_q_(int32_t time_) {
 
 int32_t TP_Implementation_::get_time_check_process_q_() {
 	return this->time_check_process_q_;
+}
+
+bool TP_Implementation_::set_task_priority(TP_Task &task_, tp_task_priority task_priority) {
+
+	//WINDOWS OS implementation
+	#ifdef WIN32
+	try {
+		tp_task_id task_id = task_.get_tp_task_id();
+
+		HANDLE win_handle;
+
+		bool output_ = false;
+
+		if (this->task_m->find(task_id) != this->task_m->end()) {
+			win_handle = this->thread_vec[this->task_m->at(task_id)].native_handle();
+		}
+		else {
+			return output_;
+		}
+
+		switch (task_priority) {
+		case TP_TASK_PRIORITY_LOWEST:
+			SetThreadPriority(win_handle, THREAD_PRIORITY_IDLE);
+			output_ = true;
+			break;
+		case TP_TASK_PRIORITY_LOW:
+			SetThreadPriority(win_handle, THREAD_PRIORITY_LOWEST);
+			output_ = true;
+			break;
+		case TP_TASK_PRIORITY_NORMAL:
+			SetThreadPriority(win_handle, THREAD_PRIORITY_NORMAL);
+			output_ = true;
+			break;
+		case TP_TASK_PRIORITY_HIGH:
+			SetThreadPriority(win_handle, THREAD_PRIORITY_ABOVE_NORMAL);
+			output_ = true;
+			break;
+		case TP_TASK_PRIORITY_HIGHEST:
+			SetThreadPriority(win_handle, THREAD_PRIORITY_HIGHEST);
+			output_ = true;
+			break;
+		default:
+			break;
+		}
+
+		return output_;
+	}
+	catch (std::exception& e) {
+		std::cout << e.what() << std::endl;
+		return false;
+	}
+
+	#else 
+	
+	// LINUX OS Implementation
+	#ifdef __linux__
+
+	#endif
+
+	#endif
 }
 
 #ifdef __linux__	
