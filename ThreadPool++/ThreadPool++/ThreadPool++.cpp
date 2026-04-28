@@ -103,6 +103,8 @@ int main()
 	std::string str_2;
 	std::string str_3;
 
+	tp->set_task_priority(t4, TP_TASK_PRIORITY_LOW);
+
 	tp->check_task_completed_native(t1, 100, str_1);
 	std::cout << str_1 << std::endl;
 	tp->check_task_completed_native(t2, 200, str_2);
