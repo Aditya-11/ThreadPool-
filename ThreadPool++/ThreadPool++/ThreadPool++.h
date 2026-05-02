@@ -57,6 +57,7 @@ Thread Pool ++
 
 	#ifdef __linux__
 		#include <unistd.h>
+		#include <sys/resource.h>
 	#endif
 
 #endif
@@ -195,6 +196,49 @@ typedef enum {
 	TP_TASK_PRIORITY_HIGH = 0x0D,
 	TP_TASK_PRIORITY_HIGHEST = 0X0E
 } tp_task_priority;
+
+// Linux Scheduler Priority Utility fuction
+#ifdef __linux__
+
+	#define utility_get_priority_value [](int scheduler_policy, TP::tp_task_priority task_priority) { \
+        if (scheduler_policy == SCHED_BATCH || scheduler_policy == SCHED_OTHER ) { \
+			switch(task_priority) {                           \
+				case TP_TASK_PRIORITY_LOWEST:                 \
+					return 19;                                \
+				case TP_TASK_PRIORITY_LOW :                   \
+					return 7;                                \
+				case TP_TASK_PRIORITY_NORMAL:                 \
+					return 0;                                 \
+				case TP_TASK_PRIORITY_HIGH:                   \
+					return -8;                                \
+				case TP_TASK_PRIORITY_HIGHEST:                \
+				    return -20;                               \
+				default:                                      \
+				    return 0;                                 \
+ 			}                                                 \
+		}                                                     \
+		else if (scheduler_policy == SCHED_FIFO || scheduler_policy == SCHED_RR) { \
+			switch(task_priority) { \
+				case TP_TASK_PRIORITY_LOWEST:    \
+					return 25;                   \
+				case TP_TASK_PRIORITY_LOW:       \
+					return 43;                   \
+				case TP_TASK_PRIORITY_NORMAL:    \
+					return 50;                   \
+				case TP_TASK_PRIORITY_HIGH :     \
+					return 83;                   \
+				case TP_TASK_PRIORITY_HIGHEST :  \
+					return 99;                   \
+				default :                        \
+				    return 50;                   \
+			}                                    \
+		}                                        \
+		else {                                   \
+			return 0;                            \
+		}                                        \
+	}
+
+#endif
 
 // task_call_back
 typedef std::function<void(void *,void *)> tp_task_cb;
@@ -455,6 +499,7 @@ public:
 #ifdef __linux__
 		// Linux Specific feature
 		std::string check_thread_status_native(pthread_t pthread_handle, tp_task_id task_id, tp_task_status task_status);
+		bool set_task_linux_scheduler_policy(TP_Task task_ , int scheduler_policy , tp_task_priority task_priority);
 #endif
 		std::unordered_map <tp_task_id, std::string> * thread_status;
 
@@ -643,6 +688,10 @@ uint32_t TP_Implementation_::process_task() {
 				this->thread_vec[x] = std::thread(&TP_Implementation_::tp_task_function_, this, *task_);
 
 				//this->thread_vec[x] = std::thread(task_cb);
+
+				#ifdef __linux__
+					this->thread_status_vec[x] = true;
+				#endif
 
 				this->task_m->insert({ task_->get_tp_task_id(), x });
 
@@ -1111,6 +1160,7 @@ void TP_Implementation_::tp_task_function_(TP_Task t_) {
 			}
 			
 			this->thread_status_vec[task_id] = true;
+			//this->set_task_linux_scheduler_policy(t_, SCHED_FIFO, TP_TASK_PRIORITY_LOW);
 		#endif
 
 		run_task(t_.get_tp_task_input_ptr() , t_.get_tp_task_output_ptr());
@@ -1498,14 +1548,15 @@ int32_t TP_Implementation_::get_time_check_process_q_() {
 
 bool TP_Implementation_::set_task_priority(TP_Task &task_, tp_task_priority task_priority) {
 
+	tp_task_id task_id = task_.get_tp_task_id();
+
+	bool output_ = false;
+
 	//WINDOWS OS implementation
 	#ifdef WIN32
 	try {
-		tp_task_id task_id = task_.get_tp_task_id();
 
 		HANDLE win_handle;
-
-		bool output_ = false;
 
 		if (this->task_m->find(task_id) != this->task_m->end()) {
 			win_handle = this->thread_vec[this->task_m->at(task_id)].native_handle();
@@ -1539,7 +1590,6 @@ bool TP_Implementation_::set_task_priority(TP_Task &task_, tp_task_priority task
 			break;
 		}
 
-		return output_;
 	}
 	catch (std::exception& e) {
 		std::cout << e.what() << std::endl;
@@ -1551,12 +1601,104 @@ bool TP_Implementation_::set_task_priority(TP_Task &task_, tp_task_priority task
 	// LINUX OS Implementation
 	#ifdef __linux__
 
+	try {
+
+		pthread_t pthread_handle;
+
+		if (this->task_m->find(task_id) != this->task_m->end()) {
+			pthread_handle = this->thread_vec[this->task_m->at(task_id)].native_handle();
+		}
+		else {
+			return false;
+		}
+
+		linux_thread_information t_info = {0};
+
+		if (this->tid_m->find(pthread_handle) != this->tid_m->end()) {
+			t_info = this->tid_m->at(pthread_handle);
+		}
+		else {
+			return false;
+		}
+
+		int policy = t_info.policy;
+		int tid = t_info.thread_id;
+
+		int priority_value = utility_get_priority_value(policy, task_priority);
+
+		if (policy == SCHED_OTHER || policy == SCHED_BATCH) {
+		 	output_ = (setpriority(PRIO_PROCESS, tid , priority_value) == 0) ? true : false;
+			if (output_) {
+				pthread_attr_t attr ; 
+				int value = getpriority(PRIO_PROCESS, tid) ;
+				std::cout << " getpriority is = " << value << std::endl;
+			}
+		}
+		else if (policy == SCHED_RR || policy == SCHED_FIFO) {
+			output_ = (pthread_setschedprio(tid, priority_value) == 0) ? true : false;
+			if (output_) {
+				pthread_attr_t attr ;
+				sched_param param;
+				pthread_attr_getschedparam(&attr, &param);
+				t_info.priority = param.sched_priority;
+				this->tid_m->emplace(pthread_handle, t_info);
+			}
+		}
+		else {
+			return false;
+		}
+	}
+	catch(std::exception &e) {
+		std::cout << e.what() << std::endl;
+		return false;
+	}
+
 	#endif
 
 	#endif
+
+	return output_;
 }
 
-#ifdef __linux__	
+#ifdef __linux__
+
+bool TP_Implementation_::set_task_linux_scheduler_policy(TP::TP_Task task_, int scheduler_policy, tp_task_priority task_priority) {
+
+	tp_task_id task_id = task_.get_tp_task_id();
+
+	pthread_t pthread_handle;
+
+	if (this->task_m->find(task_id) != this->task_m->end()) {
+		pthread_handle = this->thread_vec[this->task_m->at(task_id)].native_handle();
+	}
+	else {
+		return false;
+	}
+
+	linux_thread_information t_info = {0};
+	
+	if (this->tid_m->find(pthread_handle) != this->tid_m->end()) {
+		t_info = this->tid_m->at(pthread_handle);
+	}
+	else {
+		return false;
+	}
+
+	sched_param param;
+	param.sched_priority = utility_get_priority_value(scheduler_policy, task_priority);
+
+	if (sched_setscheduler(t_info.thread_id, scheduler_policy, &param) == 0) {
+		int policy_tmp;
+		sched_param param_tmp;
+		pthread_getschedparam(t_info.thread_id, &policy_tmp, &param_tmp);
+		std::cout << t_info.thread_id << " " << policy_tmp << " " << param_tmp.sched_priority << std::endl;
+		return true;
+	}
+	else {
+		return false;
+	}
+}	
+	
 int TP_Implementation_::check_tid_thread() {
 		return gettid();
 	}
