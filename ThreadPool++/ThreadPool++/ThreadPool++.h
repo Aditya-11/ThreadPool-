@@ -69,6 +69,8 @@ namespace TP {
 #define TP_TASK_INVALID_STATUS -2
 #define TP_TASK_CANCELLED -3
 #define TP_NO_TASK_ENQUEUED_TO_PROCESS_QUEUE -4
+#define TP_NO_TASK_ENQUEUED_TO_COMPLETE_QUEUE -5
+#define TP_COMPLETE_TASK_ERROR -6
 
 // string utility macro
 #define UTIL_STRING_NEWLINE [](char * str_, size_t size_) { \
@@ -247,6 +249,9 @@ typedef enum {
 // task_call_back
 typedef std::function<void(void *,void *)> tp_task_cb;
 
+// task call back with multiple input arguments
+typedef std::function<void(std::vector<void *>)> tp_task_cb_;
+
 // task_output
 typedef void* tp_task_output_ptr;
 
@@ -273,7 +278,7 @@ class TP_Task {
 public:
 
 // thread_id associated with the TP_Task
-uint32_t thread_id;
+ uint32_t thread_id;
 
 	TP_Task(tp_task_id id, tp_task_status status, tp_task_cb run_cb, tp_task_cb complete_cb)
 	{
@@ -332,6 +337,9 @@ uint32_t thread_id;
 
 	tp_time_milliseconds get_tp_task_duration();
 	void set_tp_task_duration(tp_time_milliseconds t);
+
+	tp_task_cb get_tp_task_complete_cb();
+	void set_tp_task_complete_cb(tp_task_cb task_complete_cb);
 
 	~TP_Task() {
 
@@ -423,6 +431,14 @@ tp_time_milliseconds TP_Task::get_tp_task_duration() {
 	return this->task_duration;
 }
 
+tp_task_cb TP_Task::get_tp_task_complete_cb() {
+	return this->complete_cb;
+}
+
+void TP_Task::set_tp_task_complete_cb(tp_task_cb task_complete_cb){
+	this->complete_cb = task_complete_cb;
+} 
+
 // Thread Safe Implementation
 
 // Thread Pool Process Queue
@@ -442,7 +458,7 @@ std::mutex process_queue_mutex;
 std::condition_variable process_q_conditonal_var ;
 
 // Thread Pool Completion Queue
-std::queue <TP_Task> completion_queue;
+std::queue <TP_Task*> completion_queue;
 
 // boolean to track added to queue
 std::atomic <bool> added_to_completion_queue = false;
@@ -495,6 +511,8 @@ public:
 		bool end_task(TP_Task &task_);
 		std::string check_thread_status_native(TP_Task &task_);
 		bool set_task_priority(TP_Task &task_, tp_task_priority task_priority);
+		uint32_t enqueue_completed_task(TP_Task &task_);
+		uint32_t process_completed_task();
 #ifdef WIN32
 		// WINDOWS Specific feature
 		std::string check_thread_status_native(HANDLE win_handle, tp_task_id task_id, tp_task_status task_status);
@@ -536,6 +554,8 @@ public:
 			this->implementation_ = "CPU THREAD POOL++ Implementation";
 			this->add_to_process_q = &added_to_process_queue;
 			this->get_from_process_q = &get_from_process_queue;
+			this->add_to_complete_q = &added_to_completion_queue;
+			this->get_from_complete_q = &get_from_completion_queue;
 			this->current_task = 0;
 			this->check_process_q_ = true;
 			this->time_check_process_q_ = 800;
@@ -552,11 +572,24 @@ public:
 				this->thread_status_vec.resize(this->cpu_max_hyper_threads);
 				assert(this->thread_status_vec.size() == this->cpu_max_hyper_threads);
 			#endif 
+				
+			this->check_completion_q_ = true;
+			
+			this->time_check_completion_q_ = 133;
+			
+			this->thread_check_completion_q_ = std::thread([this]() {
+				while (this->check_completion_q_ || (!this->completion_queue_ptr->empty())) {
+					this->process_completed_task();
+					std::this_thread::sleep_for(tp_time_milliseconds(this->time_check_completion_q_));
+				}
+			});
 		}
 
 		~TP_Implementation_() {
 			this->check_process_q_ = false;
+			this->check_completion_q_ = false;
 			if (this->thread_check_process_q_.joinable()) this->thread_check_process_q_.join();
+			if (this->thread_check_completion_q_.joinable()) this->thread_check_completion_q_.join();
 			this->check_all_tasks_completed();
 			if (task_m != nullptr) delete this->task_m;
 			this->process_queue_ptr = nullptr;
@@ -576,7 +609,11 @@ private :
 
 		std::mutex process_q_mutex;
 
+		std::mutex complete_q_mutex;
+
 		std::condition_variable process_q_conditional_var;
+
+		std::condition_variable complete_q_conditional_var;
 
 		// HasH Table : tp_task_id -> vector thread index
 		std::unordered_map <tp_task_id, int> * task_m;
@@ -586,7 +623,7 @@ private :
 
 		std::vector<std::thread> thread_vec;
 
-		std::queue <TP_Task>* completion_queue_ptr;
+		std::queue <TP_Task *> * completion_queue_ptr;
 
 		void tp_init_thread_vector();
 
@@ -596,13 +633,21 @@ private :
 
 		std::atomic <bool> * get_from_process_q;
 
+		std::atomic <bool> * add_to_complete_q;
+
+		std::atomic <bool> * get_from_complete_q;
+
 		tp_task_id current_task;
 
 		uint32_t tp_find_free_thread_for_task();
 
 		std::atomic <bool> check_process_q_ = false;
 
+		std::atomic <bool> check_completion_q_ = false;
+
 		std::thread thread_check_process_q_;
+
+		std::thread thread_check_completion_q_;
 
 		bool check_all_tasks_completed();
 
@@ -611,6 +656,8 @@ private :
 		void check_end_time(TP_Task& t);
 
 		int32_t time_check_process_q_;
+
+		int32_t time_check_completion_q_;
 
 		#ifdef __linux__
 			std::vector<bool> thread_status_vec; 
@@ -1127,13 +1174,19 @@ void TP_Implementation_::tp_task_function_(TP_Task t_) {
 	
 	tp_task_id task_id = t_.get_tp_task_id();
 
+	#ifdef WIN32
+		assert(task_id >= 0 && task_id < this->task_vec.size(), "Invalid task_id value");
+	#elifdef __linux__
+		assert(task_id >= 0 && task_id < this->task_vec.size());
+	#endif
+
 	tp_task_cb run_task = std::bind(t_.get_tp_task_cb(),
 		std::placeholders::_1,
 		std::placeholders::_2);
 
 	try {
 
-		t_.set_tp_task_status(TP_TASK_RUN); 
+		this->task_vec[task_id].set_tp_task_status(TP_TASK_RUN); 
 		
 		#ifdef __linux__
 			
@@ -1164,7 +1217,7 @@ void TP_Implementation_::tp_task_function_(TP_Task t_) {
 			}
 			
 			this->thread_status_vec[task_id] = true;
-
+			
 			#ifdef TP_TASK_LINUX_SCHEDULER_POLICY_FIFO
 				this->set_task_linux_scheduler_policy(t_, SCHED_FIFO, TP_TASK_PRIORITY_NORMAL);
 			#elifdef TP_TASK_LINUX_SCHEDULER_POLICY_RR
@@ -1181,7 +1234,6 @@ void TP_Implementation_::tp_task_function_(TP_Task t_) {
 		}
 
 		this->check_end_time(t_);
-		t_.set_tp_task_status(TP_TASK_COMPLETED);
 		this->task_vec[task_id].set_tp_task_status(TP_TASK_COMPLETED);
 		this->check_thread_status_native(t_);
 		
@@ -1201,6 +1253,7 @@ void TP_Implementation_::tp_task_function_(TP_Task t_) {
 
 		#endif
 
+		this->enqueue_completed_task(this->task_vec[task_id]);
 	}
 	catch (std::exception& e) {
 		std::cout << e.what() << std::endl;
@@ -1314,6 +1367,8 @@ bool TP_Implementation_::end_task(TP_Task& task_) {
 		}
 
 		this->check_end_time(task_);
+
+		this->enqueue_completed_task(task_);
 	}
 	catch (std::exception &e) {
 		std::cout << e.what() << std::endl;
@@ -1345,6 +1400,7 @@ bool TP_Implementation_::end_task(TP_Task& task_) {
 			this->tid_m->emplace(pthread_handle, t_info);
 		}
 
+		this->enqueue_completed_task(task_);
 	}
 	catch (std::exception &e) {
 		std::cout << e.what() << std::endl;
@@ -1719,7 +1775,98 @@ bool TP_Implementation_::set_task_linux_scheduler_policy(TP::TP_Task task_, int 
 		return false;
 	}
 
-}	
+}
+
+// enqueue completed task 
+uint32_t TP_Implementation_::enqueue_completed_task(TP_Task &task_) {
+
+	try {
+		tp_task_status task_status = task_.get_tp_task_status();
+	
+		if (task_status != TP_TASK_COMPLETED && task_status != TP_TASK_ENDED) {
+			return TP_TASK_INVALID_STATUS;
+		}
+
+		std::unique_lock <std::mutex> lk(complete_q_mutex);
+
+		this->complete_q_conditional_var.wait(lk, [&task_, this](){
+			this->completion_queue_ptr->push(&task_);
+			*this->add_to_complete_q = true;
+			return ((*this->add_to_complete_q) && !(*this->get_from_complete_q));
+		});	
+
+		*this->add_to_complete_q = false;
+
+		lk.unlock();
+
+		this->complete_q_conditional_var.notify_all();
+
+		return 0;
+	}
+	catch (std::exception &e) {
+		std::cout << e.what() << std::endl;
+		return TP_COMPLETE_TASK_ERROR;
+	}
+}
+
+// process completed task;
+uint32_t TP_Implementation_::process_completed_task() {
+	
+	if (this->completion_queue_ptr->empty()) {
+		return TP_NO_TASK_ENQUEUED_TO_COMPLETE_QUEUE;
+	}
+	
+	TP_Task * task_ = nullptr;
+
+	std::unique_lock<std::mutex> lk(complete_q_mutex);
+	
+	this->complete_q_conditional_var.wait(lk, [&task_, this]() {
+		if (this->completion_queue_ptr->empty()) return true;
+		task_ = this->completion_queue_ptr->front();
+		this->completion_queue_ptr->pop();
+		*this->get_from_complete_q = true;
+		return ((*this->get_from_complete_q) && (!(*this->add_to_complete_q)));
+	});
+
+	*this->get_from_complete_q = false;
+
+	lk.unlock();
+	
+	this->complete_q_conditional_var.notify_all();
+
+	tp_task_status task_status = task_->get_tp_task_status();
+
+	if (task_status != TP_TASK_COMPLETED && task_status != TP_TASK_ENDED) {
+		return TP_TASK_INVALID_STATUS;
+	}
+
+	tp_task_cb tp_complete_cb = task_->get_tp_task_complete_cb();
+
+	try {
+
+		if (task_->get_tp_task_complete_cb() == nullptr) {
+			return -1;
+		}
+
+		std::cout << " complete TP_Task task_id = " << task_->get_tp_task_id() << std::endl; 
+
+		tp_task_cb run_complete_task = std::bind(task_->get_tp_task_complete_cb(), 
+												 std::placeholders::_1,
+		                                         std::placeholders::_2);
+		
+		tp_task_input_ptr task_input_ptr = task_->get_tp_task_input_ptr();
+		tp_task_output_ptr task_output_ptr = task_->get_tp_task_output_ptr();
+
+		run_complete_task(task_input_ptr, task_output_ptr);
+
+		return 0;
+	}	
+	catch(std::exception &e) {
+		std::cout << e.what() << std::endl;
+		return TP_COMPLETE_TASK_ERROR;
+	}	
+
+}
 	
 int TP_Implementation_::check_tid_thread() {
 		return gettid();

@@ -34,6 +34,17 @@ int main()
 			*output_val = x;
 		};
 
+	auto complete_task_function = [](TP::tp_task_input_ptr input, TP::tp_task_output_ptr output) {
+		if (input == nullptr || output == nullptr) return;
+		
+		int * input_val_ptr = static_cast <int*> (input);
+		int * output_val_ptr = static_cast <int*> (output);
+
+		std::cout << " Task Completed " << " input to task = " << *input_val_ptr 
+		                                << ", output of task = " << *output_val_ptr << "\n";
+
+	};
+
 	TP::TP_Task t1;
 	TP::TP_Task t2;
 	TP::TP_Task t3;
@@ -45,6 +56,12 @@ int main()
 	t3.set_tp_task_cb(f_);
 	t4.set_tp_task_cb(f_);
 	t5.set_tp_task_cb(f_);
+
+	t1.set_tp_task_complete_cb(complete_task_function);
+	t2.set_tp_task_complete_cb(complete_task_function);
+	t3.set_tp_task_complete_cb(complete_task_function);
+	t4.set_tp_task_complete_cb(complete_task_function);
+	t5.set_tp_task_complete_cb(complete_task_function);
 
 	tp_task_input_ptr t1_input = new int(100); 
 	tp_task_input_ptr t2_input = new int(200);
