@@ -204,12 +204,13 @@ int main()
 	auto f_task = [](TP::tp_task_input_ptr input, TP::tp_task_output_ptr output) {
 		int* input_val = static_cast <int*> (input);
 		int* output_val = static_cast <int*> (output);
-		*output_val = ++(*input_val);
+		*output_val = *input_val + 1;
 	};
 
 	task->set_tp_task_input_ptr(task_input);
 	task->set_tp_task_output_ptr(task_output);
 	task->set_tp_task_cb(f_task);
+	task->set_tp_task_complete_cb(complete_task_function);
 
 	tp->enqueue_task(*task);
 	tp_task_id task_id = task->get_tp_task_id();

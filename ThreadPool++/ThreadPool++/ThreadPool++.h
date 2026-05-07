@@ -1176,8 +1176,10 @@ void TP_Implementation_::tp_task_function_(TP_Task t_) {
 
 	#ifdef WIN32
 		assert(task_id >= 0 && task_id < this->task_vec.size(), "Invalid task_id value");
-	#elifdef __linux__
+	#else
+		#ifdef __linux__
 		assert(task_id >= 0 && task_id < this->task_vec.size());
+		#endif
 	#endif
 
 	tp_task_cb run_task = std::bind(t_.get_tp_task_cb(),
@@ -1227,15 +1229,15 @@ void TP_Implementation_::tp_task_function_(TP_Task t_) {
 			#endif
 
 		#endif
-
+		
 		run_task(t_.get_tp_task_input_ptr() , t_.get_tp_task_output_ptr());
 		if (t_.get_tp_task_id() < this->task_vec.size()) {
 			this->task_vec.at(t_.get_tp_task_id()).set_tp_task_status(TP_TASK_COMPLETED);
 		}
 
+		this->check_thread_status_native(t_);
 		this->check_end_time(t_);
 		this->task_vec[task_id].set_tp_task_status(TP_TASK_COMPLETED);
-		this->check_thread_status_native(t_);
 		
 		#ifdef __linux__ 
 			
@@ -1777,6 +1779,8 @@ bool TP_Implementation_::set_task_linux_scheduler_policy(TP::TP_Task task_, int 
 
 }
 
+#endif
+
 // enqueue completed task 
 uint32_t TP_Implementation_::enqueue_completed_task(TP_Task &task_) {
 
@@ -1867,7 +1871,8 @@ uint32_t TP_Implementation_::process_completed_task() {
 	}	
 
 }
-	
+
+#ifdef __linux__
 int TP_Implementation_::check_tid_thread() {
 		return gettid();
 	}
