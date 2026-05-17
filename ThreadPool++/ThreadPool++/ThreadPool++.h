@@ -513,6 +513,9 @@ public:
 		bool set_task_priority(TP_Task &task_, tp_task_priority task_priority);
 		uint32_t enqueue_completed_task(TP_Task &task_);
 		uint32_t process_completed_task();
+		bool resize(uint32_t size_);
+		uint32_t get_tp_size();
+
 #ifdef WIN32
 		// WINDOWS Specific feature
 		std::string check_thread_status_native(HANDLE win_handle, tp_task_id task_id, tp_task_status task_status);
@@ -525,7 +528,9 @@ public:
 #endif
 		std::unordered_map <tp_task_id, std::string> * thread_status;
 
-		TP_Implementation_() {
+		// TP_Implementation initialize function 
+
+		void TP_Implementation_initialize() {
 			this->tp_instance_init_time = std::chrono::steady_clock::now();
 			this->cpu_max_hyper_threads = std::thread::hardware_concurrency();
 			#ifdef WIN32
@@ -537,7 +542,10 @@ public:
 			#endif
 			
 			#endif
-			this->thread_vec.resize(this->cpu_max_hyper_threads);
+
+			this->max_threads = this->cpu_max_hyper_threads;
+
+			this->thread_vec.resize(this->max_threads);
 			tp_init_thread_vector();
 
 			#ifdef WIN32
@@ -575,14 +583,23 @@ public:
 				
 			this->check_completion_q_ = true;
 			
-			this->time_check_completion_q_ = 133;
+			this->time_check_completion_q_ = 300;
 			
 			this->thread_check_completion_q_ = std::thread([this]() {
 				while (this->check_completion_q_ || (!this->completion_queue_ptr->empty())) {
 					this->process_completed_task();
-					std::this_thread::sleep_for(tp_time_milliseconds(this->time_check_completion_q_));
+					std::this_thread::sleep_for(tp_time_nanoseconds(this->time_check_completion_q_));
 				}
 			});
+		}
+
+		TP_Implementation_() {
+			this->TP_Implementation_initialize();
+		}
+
+		TP_Implementation_(int n_threads) {
+			this->TP_Implementation_initialize();
+			this->resize(n_threads);
 		}
 
 		~TP_Implementation_() {
@@ -628,6 +645,8 @@ private :
 		void tp_init_thread_vector();
 
 		uint32_t cpu_max_hyper_threads;
+
+		uint32_t max_threads;
 
 		std::atomic <bool> * add_to_process_q;
 
@@ -866,10 +885,6 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 
 			}
 
-			std::string t_output_usage = this->check_thread_status_native(win_handle, task_.get_tp_task_id(), TP_TASK_COMPLETED);
-
-			this->thread_status->insert({task_id , t_output_usage});
-
 			#else
 
 				#ifdef __linux__
@@ -917,6 +932,9 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 				this->task_vec.at(thread_index).set_tp_task_status(TP_TASK_ENDED);
 			}
 
+			//std::string t_output_usage = this->check_thread_status_native(win_handle, task_.get_tp_task_id(), TP_TASK_COMPLETED);
+			//this->thread_status->insert({ task_id , t_output_usage });
+
 			this->check_end_time(task_);
 
 			task_status_ = task_.get_tp_task_status();
@@ -953,7 +971,7 @@ bool TP_Implementation_::check_task_completed_native(TP_Task& task_,
 
 void TP_Implementation_::tp_init_thread_vector() {
 
-	for (int x = 0; x < this->cpu_max_hyper_threads ; x++) {
+	for (int x = 0; x < this->max_threads ; x++) {
 		this->thread_vec[x] = std::thread();
 	}
 
@@ -961,7 +979,7 @@ void TP_Implementation_::tp_init_thread_vector() {
 
 uint32_t TP_Implementation_::tp_find_free_thread_for_task() {
 
-	for (int x = 0; x < this->cpu_max_hyper_threads; x++) {
+	for (int x = 0; x < this->max_threads; x++) {
 		// implementation for Windows
 
 #ifdef WIN32
@@ -1234,11 +1252,14 @@ void TP_Implementation_::tp_task_function_(TP_Task t_) {
 		if (t_.get_tp_task_id() < this->task_vec.size()) {
 			this->task_vec.at(t_.get_tp_task_id()).set_tp_task_status(TP_TASK_COMPLETED);
 		}
-
-		this->check_thread_status_native(t_);
+		
 		this->check_end_time(t_);
 		this->task_vec[task_id].set_tp_task_status(TP_TASK_COMPLETED);
+
+		std::string output_ = this->check_thread_status_native(t_);
 		
+		this->thread_status->insert({ task_id, output_});
+
 		#ifdef __linux__ 
 			
 			if (this->task_m->find(task_id) != this->task_m->end()) {
@@ -1419,7 +1440,7 @@ std::string TP_Implementation_::check_thread_status_native(TP_Task& task_) {
 	std::string output_;
 
 	tp_task_id task_id = task_.get_tp_task_id();
-
+	
 	if (this->thread_status->find(task_id) != this->thread_status->end()) {
 		output_ = this->thread_status->at(task_id);
 		return output_;
@@ -1791,6 +1812,10 @@ uint32_t TP_Implementation_::enqueue_completed_task(TP_Task &task_) {
 			return TP_TASK_INVALID_STATUS;
 		}
 
+		tp_task_id task_id = task_.get_tp_task_id();
+
+		assert(task_id >= 0 && task_id < this->task_vec.size());
+
 		std::unique_lock <std::mutex> lk(complete_q_mutex);
 
 		this->complete_q_conditional_var.wait(lk, [&task_, this](){
@@ -1838,11 +1863,19 @@ uint32_t TP_Implementation_::process_completed_task() {
 	
 	this->complete_q_conditional_var.notify_all();
 
+	tp_task_id task_id = task_->get_tp_task_id();
+
+	assert((task_id >= 0 && task_id < this->task_vec.size()));
+
 	tp_task_status task_status = task_->get_tp_task_status();
 
 	if (task_status != TP_TASK_COMPLETED && task_status != TP_TASK_ENDED) {
 		return TP_TASK_INVALID_STATUS;
 	}
+	
+	// std::string output_ = this->check_thread_status_native(*task_);
+
+	// this->thread_status->insert({ task_id, output_ });
 
 	tp_task_cb tp_complete_cb = task_->get_tp_task_complete_cb();
 
@@ -1870,6 +1903,30 @@ uint32_t TP_Implementation_::process_completed_task() {
 		return TP_COMPLETE_TASK_ERROR;
 	}	
 
+}
+
+// TP_Implementation resize
+bool TP_Implementation_::resize(uint32_t size_) {
+	
+	if (size_ <= 0) return false;
+
+	try {
+		this->max_threads = size_;
+		this->thread_vec.resize(size_);
+		this->task_m->clear();
+		this->tp_init_thread_vector();
+		
+		return true;
+	}
+	catch (std::exception &e) {
+		std::cout << e.what() << std::endl;
+		return false;
+	}
+
+}
+
+uint32_t TP_Implementation_::get_tp_size() {
+	return this->max_threads;
 }
 
 #ifdef __linux__

@@ -15,6 +15,11 @@ int main()
 
 	cout << tp->get_implementation_() << endl;
 
+	cout << tp->get_tp_size() << std::endl;
+
+	tp->resize(50);
+
+	cout << tp->get_tp_size() << std::endl;
 	// task function run
 
 	auto f_ = [](TP::tp_task_input_ptr input, TP::tp_task_output_ptr output) {
